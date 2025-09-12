@@ -443,68 +443,115 @@ def crear_usuario(usuario: str, rol_id: int, facultad_cod: str, carrera_cod: str
         conn.close()
 
 
-def listar_usuarios_con_filtros(facultad_cod=None, rol_id=None, q=None, page=0, limit=20):
-    """Lista usuarios con filtros mejorados"""
-    conn = conectar()
-    try:
-        cur = conn.cursor()
+def listar_usuarios_con_filtros(facultad_cod=None, rol_id=None, q=None, page=0, limit=20, activo=None):
+    """
+    Lista usuarios con filtros opcionales
 
-        where_conditions = []
+    Args:
+        facultad_cod: Código de facultad (opcional)
+        rol_id: ID del rol (opcional)
+        q: Texto de búsqueda (opcional)
+        page: Página (default: 0)
+        limit: Límite por página (default: 20)
+        activo: Filtro de estado activo/inactivo (opcional: True, False, None)
+
+    Returns:
+        dict: {'data': [...], 'total': int, 'page': int, 'limit': int}
+    """
+    try:
+        conn = conectar()
+        cursor = conn.cursor()
+
+        # Construir consulta base
+        base_query = """
+            SELECT u.Id, u.Usuario, u.Estado, u.FacultadCod, u.CarreraCod,
+                   r.RolId, r.Nombre as RolNombre,
+                   f.Nombre as FacultadNombre,
+                   c.Nombre as CarreraNombre
+            FROM Usuarios u
+            LEFT JOIN Rol r ON u.RolId = r.RolId
+            LEFT JOIN Facultad f ON u.FacultadCod = f.FacultadCod
+            LEFT JOIN Carrera c ON u.CarreraCod = c.CarreraCod
+            WHERE 1=1
+        """
+
+        conditions = []
         params = []
 
-        if q:
-            where_conditions.append("u.Usuario LIKE ?")
-            params.append(f"%{q}%")
-
+        # Filtro por facultad
         if facultad_cod:
-            where_conditions.append("u.FacultadCod = ?")
+            conditions.append("u.FacultadCod = ?")
             params.append(facultad_cod)
 
+        # Filtro por rol
         if rol_id:
-            where_conditions.append("u.RolId = ?")
+            conditions.append("u.RolId = ?")
             params.append(rol_id)
 
-        where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        # Filtro por texto de búsqueda
+        if q and q.strip():
+            conditions.append("(u.Usuario LIKE ? OR r.Nombre LIKE ? OR f.Nombre LIKE ?)")
+            search_term = f"%{q.strip()}%"
+            params.extend([search_term, search_term, search_term])
 
-        # Contar total
-        count_query = f"""
-            SELECT COUNT(*) FROM Usuarios u
-            INNER JOIN Rol r ON u.RolId = r.RolId
-            INNER JOIN Facultad f ON u.FacultadCod = f.FacultadCod
-            {where_clause}
-        """
-        cur.execute(count_query, params)
-        total = cur.fetchone()[0]
+        # Filtro por estado activo/inactivo
+        if activo is not None:
+            conditions.append("u.Estado = ?")
+            params.append(1 if activo else 0)
 
-        # Obtener datos paginados
-        offset = page * limit
-        data_query = f"""
-            SELECT u.Id, u.Usuario, u.Estado, u.RolId, r.Nombre as RolNombre,
-                   u.FacultadCod, f.Nombre as FacultadNombre,
-                   u.CarreraCod, c.Nombre as CarreraNombre
-            FROM Usuarios u
-            INNER JOIN Rol r ON u.RolId = r.RolId
-            INNER JOIN Facultad f ON u.FacultadCod = f.FacultadCod
-            LEFT JOIN Carrera c ON u.CarreraCod = c.CarreraCod
-            {where_clause}
-            ORDER BY u.Id DESC
-            OFFSET ? ROWS FETCH NEXT ? ROWS ONLY
-        """
-        cur.execute(data_query, params + [offset, limit])
-        rows = cur.fetchall()
+        # Agregar condiciones a la consulta
+        if conditions:
+            base_query += " AND " + " AND ".join(conditions)
 
-        users = [_row_to_user_dict(row) for row in rows]
+        # Consulta para el total
+        count_query = f"SELECT COUNT(*) FROM ({base_query}) as filtered"
+        cursor.execute(count_query, params)
+        total = cursor.fetchone()[0]
 
-        return {
-            "data": users,
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "total_pages": (total + limit - 1) // limit
-        }
-    finally:
-        cur.close()
+        # Agregar ordenamiento y paginación
+        base_query += " ORDER BY u.Id DESC"
+        if limit > 0:
+            offset = page * limit
+            base_query += f" OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
+
+        # Ejecutar consulta principal
+        cursor.execute(base_query, params)
+        rows = cursor.fetchall()
+
+        # Mapear resultados
+        users = []
+        for row in rows:
+            user = {
+                'id': row[0],
+                'usuario': row[1],
+                'activo': bool(row[2]),  # Estado -> activo
+                'estado': bool(row[2]),  # También mantener 'estado' por compatibilidad
+                'facultadCod': row[3],
+                'carreraCod': row[4],
+                'rolId': row[5],
+                'rolNombre': row[6] or 'Sin rol',
+                'facultadNombre': row[7] or 'Sin facultad',
+                'carreraNombre': row[8] or 'Sin carrera'
+            }
+            users.append(user)
+
+        cursor.close()
         conn.close()
+
+        result = {
+            'data': users,
+            'total': total,
+            'page': page,
+            'limit': limit,
+            'has_more': (page + 1) * limit < total
+        }
+
+        print(f"✅ listar_usuarios_con_filtros: Returned {len(users)} users (total: {total})")
+        return result
+
+    except Exception as e:
+        print(f"❌ Error in listar_usuarios_con_filtros: {e}")
+        raise Exception(f"Error al listar usuarios: {e}")
 
 
 # ======================= CATÁLOGOS =======================

@@ -1,10 +1,9 @@
-// index.js
+// index.js - Versión simplificada
 import { loadData, saveData, removeData } from './indexeddb-storage.js';
 import { ensureSessionGuard, scheduleAutoLogout } from './auth-session.js';
 
 const API_BASE = 'http://26.127.175.34:5000';
 
-let __roleReloading = false;
 let currentUser = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -17,419 +16,267 @@ document.addEventListener('DOMContentLoaded', async () => {
   const overlay = document.getElementById('loading-overlay');
   const loadingText = document.getElementById('loading-text');
 
-  // Cargar información del usuario
+  // Cargar usuario actual
   currentUser = await loadData('userData');
   if (!currentUser) {
     location.href = 'login.html';
     return;
   }
 
-  // ---------- Configurar headers de autenticación ----------
+  // Headers simples para autenticación
   const authHeaders = {
     'X-User-Email': currentUser.usuario,
     'Content-Type': 'application/json'
   };
 
-  // Función helper para hacer peticiones autenticadas
-  const authenticatedFetch = async (url, options = {}) => {
-    const config = {
+  // Función helper para requests autenticados
+  const apiRequest = async (url, options = {}) => {
+    return fetch(url, {
       ...options,
-      headers: {
-        ...authHeaders,
-        ...(options.headers || {})
-      }
-    };
-    return fetch(url, config);
+      headers: { ...authHeaders, ...(options.headers || {}) }
+    });
   };
 
-  // ---------- Tema (dark / light) ----------
-  let btn = document.getElementById('theme-toggle');
-  if (!btn) {
-    btn = document.createElement('button');
-    btn.id = 'theme-toggle';
-    document.body.appendChild(btn);
-  }
-
-  function updateToggleUI() {
-    const isDark = document.documentElement.classList.contains('dark-mode');
-    btn.textContent = isDark ? '☀️' : '🌙';
-    btn.setAttribute('aria-label', isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro');
-    btn.setAttribute('title', isDark ? 'Modo claro' : 'Modo oscuro');
-    btn.setAttribute('aria-pressed', String(isDark));
-  }
-
-  btn.replaceWith(btn.cloneNode(true));
-  btn = document.getElementById('theme-toggle');
-
-  const initialTheme = localStorage.getItem('theme');
-  if (initialTheme === 'dark') document.documentElement.classList.add('dark-mode');
-  if (initialTheme === 'light') document.documentElement.classList.remove('dark-mode');
-
-  btn.addEventListener('click', () => {
-    const root = document.documentElement;
-    const willDark = !root.classList.contains('dark-mode');
-    root.classList.toggle('dark-mode', willDark);
-    localStorage.setItem('theme', willDark ? 'dark' : 'light');
-    updateToggleUI();
-  }, { passive: true });
-
-  updateToggleUI();
+  // ---------- Tema ----------
+  setupThemeToggle();
 
   // ---------- Helpers ----------
-  const normalizeFileName = (fileName) => fileName.replace(/\W+/g, "_");
-
-  const buildFilesSignature = (files) => {
-    if (!Array.isArray(files)) return '';
-    const rows = files.map(f => {
-      const nombre = String(f.nombre ?? f.NombreArchivo ?? '').trim();
-      const id = String(f.id ?? '').trim();
-      const fecha = String(f.fecha ?? f.fechaSubida ?? f.FechaSubida ?? f.updatedAt ?? f.actualizado ?? '').trim();
-      const facultad = String(f.facultad ?? '').trim();
-      return `${nombre}|${id}|${fecha}|${facultad}`;
-    });
-    return rows.sort().join('::');
-  };
-
-  const showOverlay = (msg = 'Procesando datos...') => {
-    if (loadingText) loadingText.textContent = ` ${msg}`;
+  const showOverlay = (msg = 'Cargando...') => {
+    if (loadingText) loadingText.textContent = msg;
     if (overlay) overlay.style.display = 'flex';
   };
-  const hideOverlay = () => { if (overlay) overlay.style.display = 'none'; };
 
-  function getRoleFromUserData(obj) {
+  const hideOverlay = () => {
+    if (overlay) overlay.style.display = 'none';
+  };
+
+  const normalizeFileName = (fileName) => fileName.replace(/\W+/g, "_");
+
+  // ---------- Cargar perfil del usuario ----------
+  async function loadUserProfile() {
     try {
-      return String(obj?.rolNombre ?? obj?.rol ?? '').trim().toLowerCase();
-    } catch {
-      return '';
+      const response = await apiRequest(`${API_BASE}/user/profile`);
+      if (response.ok) {
+        const profile = await response.json();
+
+        // Actualizar usuario actual con datos completos del backend
+        currentUser = {
+          ...currentUser,
+          id: profile.id,
+          usuario: profile.usuario,
+          rol: profile.rol,
+          rolId: profile.rolId,
+          facultad: profile.facultad,
+          facultadCod: profile.facultadCod,
+          carrera: profile.carrera,
+          carreraCod: profile.carreraCod,
+          estado: profile.estado
+        };
+
+        // Guardar datos actualizados
+        await saveData('userData', currentUser);
+        console.log('Usuario actualizado:', currentUser);
+      }
+    } catch (error) {
+      console.warn('Error cargando perfil:', error);
     }
   }
 
-  function getUsernameFromUserData(obj) {
+  // ---------- Cargar permisos del usuario ----------
+  async function loadUserPermissions() {
     try {
-      return String(obj?.usuario ?? obj?.email ?? '').trim();
-    } catch {
-      return '';
+      const response = await apiRequest(`${API_BASE}/user/permissions`);
+      if (response.ok) {
+        const data = await response.json();
+        await saveData('userPermissions', data.permissions);
+        return data.permissions;
+      }
+    } catch (error) {
+      console.warn('Error cargando permisos:', error);
+    }
+
+    // Permisos por defecto restrictivos
+    return {
+      can_upload: false,
+      can_delete: false,
+      can_view_all_faculties: false,
+      can_manage_users: false,
+      can_send_emails: false,
+      can_edit_templates: false,
+      can_access_admin_panel: false
+    };
+  }
+
+  // ---------- Cargar plantillas de email ----------
+  async function loadEmailTemplates() {
+    try {
+      const local = await loadData('emailTemplates');
+      if (local && isValidTemplates(local)) {
+        console.log('Plantillas ya cargadas localmente');
+        return;
+      }
+
+      console.log('Cargando plantillas desde API...');
+      const templates = { correoAutoridad: 'alvaro.espinozabu@ug.edu.ec' };
+      const tipos = ['seguimiento', 'nee', 'tercera_matricula', 'parcial', 'final'];
+
+      // Cargar correo de autoridad
+      try {
+        const correoResp = await apiRequest(`${API_BASE}/correo-autoridad`);
+        if (correoResp.ok) {
+          const correoData = await correoResp.json();
+          templates.correoAutoridad = correoData.correoAutoridad || templates.correoAutoridad;
+        }
+      } catch (e) {
+        console.warn('Error cargando correo autoridad:', e);
+      }
+
+      // Cargar cada tipo de plantilla
+      for (const tipo of tipos) {
+        try {
+          const resp = await apiRequest(`${API_BASE}/plantillas?tipo=${tipo}`);
+          if (resp.ok) {
+            const data = await resp.json();
+            templates[tipo] = {
+              autoridad: data.plantillas?.autoridad || '',
+              docente: data.plantillas?.docente || data.plantillas?.docentes || '',
+              estudiante: data.plantillas?.estudiante || data.plantillas?.estudiantes || ''
+            };
+          } else {
+            templates[tipo] = { autoridad: '', docente: '', estudiante: '' };
+          }
+        } catch (e) {
+          console.warn(`Error cargando plantilla ${tipo}:`, e);
+          templates[tipo] = { autoridad: '', docente: '', estudiante: '' };
+        }
+      }
+
+      await saveData('emailTemplates', templates);
+      console.log('Plantillas guardadas correctamente');
+    } catch (error) {
+      console.error('Error general cargando plantillas:', error);
+    }
+  }
+
+  function isValidTemplates(templates) {
+    if (!templates) return false;
+    const tipos = ['seguimiento', 'nee', 'tercera_matricula', 'parcial', 'final'];
+    return tipos.some(tipo => {
+      const t = templates[tipo];
+      return t && (t.autoridad?.trim() || t.docente?.trim() || t.estudiante?.trim());
+    });
+  }
+
+  // ---------- Sincronizar archivos ----------
+  async function syncFiles() {
+    try {
+      showOverlay('Verificando archivos...');
+
+      const response = await apiRequest(`${API_BASE}/files`);
+      if (!response.ok) {
+        console.warn('Error obteniendo lista de archivos');
+        return false;
+      }
+
+      const data = await response.json();
+      const files = Array.isArray(data) ? data : (data.archivos || []);
+
+      if (files.length === 0) {
+        console.log('No hay archivos disponibles');
+        return false;
+      }
+
+      console.log(`Encontrados ${files.length} archivos en el servidor`);
+
+      // Verificar archivos que necesitan descarga
+      await ensureXLSXLoaded();
+      const missingFiles = [];
+
+      for (const file of files) {
+        const nombre = file.nombre || file.NombreArchivo;
+        if (!nombre) continue;
+
+        const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
+        const localData = await loadData(localKey);
+
+        if (!localData || !Array.isArray(localData) || localData.length === 0) {
+          missingFiles.push(file);
+        }
+      }
+
+      console.log(`${missingFiles.length} archivos por descargar`);
+
+      // Descargar archivos faltantes
+      if (missingFiles.length > 0) {
+        let downloadCount = 0;
+
+        for (const file of missingFiles) {
+          const nombre = file.nombre || file.NombreArchivo;
+          const id = file.id;
+
+          try {
+            showOverlay(`Descargando "${nombre}" (${downloadCount + 1}/${missingFiles.length})...`);
+
+            const fileResp = await apiRequest(`${API_BASE}/download/${id}`);
+            if (!fileResp.ok) continue;
+
+            const blob = await fileResp.blob();
+            const arrayBuffer = await blob.arrayBuffer();
+            const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+            const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+            const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
+            await saveData(localKey, jsonData);
+
+            downloadCount++;
+            console.log(`Descargado: ${nombre} (${jsonData.length} registros)`);
+          } catch (error) {
+            console.error(`Error descargando ${nombre}:`, error);
+          }
+        }
+
+        if (downloadCount > 0) {
+          await saveData('lastSyncAt', new Date().toISOString());
+          showOverlay(`${downloadCount} archivos descargados correctamente`);
+          setTimeout(hideOverlay, 2000);
+          return true;
+        }
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error en sincronización:', error);
+      showOverlay('Error al sincronizar archivos');
+      setTimeout(hideOverlay, 3000);
+      return false;
     }
   }
 
   async function ensureXLSXLoaded() {
     if (window.XLSX) return;
     await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js';
-      s.onload = resolve;
-      s.onerror = () => reject(new Error('No se pudo cargar SheetJS'));
-      document.head.appendChild(s);
+      const script = document.createElement('script');
+      script.src = 'https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js';
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('No se pudo cargar SheetJS'));
+      document.head.appendChild(script);
     });
   }
 
-  // ---------- Cargar permisos de módulos desde el backend ----------
-  async function loadModulePermissions() {
-    try {
-      const resp = await authenticatedFetch(`${API_BASE}/api/permissions/modules`);
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
-      }
-      const data = await resp.json();
-      await saveData('currentUserInfo', data.userInfo);
-      return data.permissions;
-    } catch (e) {
-      console.error('Error al cargar permisos de módulos:', e);
-      // Permisos por defecto muy restrictivos
-      return {
-        'academic-tracking': false,
-        'nee-control': false,
-        'tercera-matricula': false,
-        'control-parcial': false,
-        'control-final': false,
-        'top-promedios': true,
-        'consulta-estudiante': true,
-        'consulta-docente': true,
-        'distribucion-docente': false,
-        'reportes': false,
-        'config': false,
-        'admin-panel': false
-      };
-    }
-  }
-
-  // ---------- Cargar plantillas con tipo ----------
-  async function ensureEmailTemplates() {
-    try {
-      const local = await loadData('emailTemplates');
-      if (local && local.seguimiento) {
-        console.log('✅ Plantillas de email ya existen en IndexedDB');
-        return;
-      }
-
-      console.log('📧 Cargando plantillas de email por defecto...');
-      
-      // Cargar plantillas por tipo
-      const tipos = ['seguimiento', 'nee', 'tercera_matricula', 'parcial', 'final'];
-      const templates = {
-        correoAutoridad: 'alvaro.espinozabu@ug.edu.ec'
-      };
-
-      for (const tipo of tipos) {
-        try {
-          const res = await authenticatedFetch(`${API_BASE}/plantillas?tipo=${tipo}`);
-          const data = await res.json();
-          templates[tipo] = data;
-        } catch (error) {
-          console.warn(`⚠️ Error al cargar plantilla ${tipo}:`, error);
-          templates[tipo] = { autoridad: '', docente: '', estudiante: '' };
-        }
-      }
-
-      await saveData('emailTemplates', templates);
-      console.log('✅ Plantillas de email cargadas y guardadas localmente');
-
-    } catch (error) {
-      console.warn('⚠️ Error general al cargar plantillas:', error);
-      
-      const fallbackTemplates = {
-        correoAutoridad: 'alvaro.espinozabu@ug.edu.ec',
-        seguimiento: { autoridad: '', docente: '', estudiante: '' },
-        nee: { autoridad: '', docente: '', estudiante: '' },
-        tercera_matricula: { autoridad: '', docente: '', estudiante: '' },
-        parcial: { autoridad: '', docente: '', estudiante: '' },
-        final: { autoridad: '', docente: '', estudiante: '' }
-      };
-
-      await saveData('emailTemplates', fallbackTemplates);
-      console.log('✅ Plantillas de email por defecto guardadas localmente');
-    }
-  }
-
-  // ---------- Validar rol contra backend y refrescar si cambió ----------
-  async function validateRoleAndRefreshIfChanged() {
-    const username = getUsernameFromUserData(currentUser);
-    if (!username) return;
-
-    try {
-      const url = `${API_BASE}/usuarios?q=${encodeURIComponent(username)}&limit=1&page=0`;
-      const resp = await authenticatedFetch(url);
-      if (!resp.ok) return;
-
-      const body = await resp.json();
-      const rows = Array.isArray(body?.data) ? body.data : [];
-
-      if (!rows.length) return;
-
-      const match = rows.find(r => String(r?.usuario ?? '').toLowerCase() === username.toLowerCase()) || rows[0];
-      const backendRole = String(match?.rolNombre ?? '').trim().toLowerCase();
-      const currentRole = getRoleFromUserData(currentUser);
-      
-      if (backendRole && backendRole !== currentRole) {
-        // Actualizar datos del usuario con información completa del backend
-        const updatedUser = {
-          ...currentUser,
-          ...match
-        };
-        await saveData('userData', updatedUser);
-
-        __roleReloading = true;
-        location.reload();
-      }
-    } catch (e) {
-      console.warn('No se pudo validar rol en backend:', e);
-    }
-  }
-
-  // ---------- Sincronización de archivos filtrada por facultad ----------
-  async function syncFilesFromBackendIfNeeded() {
-  try {
-    // Obtener archivos disponibles en el backend (ya filtrados por facultad del usuario)
-    const resp = await authenticatedFetch(`${API_BASE}/files`);
-    if (!resp.ok) throw new Error(`/files respondió ${resp.status}`);
-    
-    const backendFiles = await resp.json();
-    const filesArray = Array.isArray(backendFiles) ? backendFiles : 
-                      (Array.isArray(backendFiles.archivos) ? backendFiles.archivos : []);
-
-    if (filesArray.length === 0) {
-      console.log('ℹ️ No hay archivos disponibles para tu facultad');
-      return false;
-    }
-
-    console.log(`📁 Encontrados ${filesArray.length} archivos en el backend para tu facultad`);
-
-    // Verificar qué archivos ya están descargados localmente
-    await ensureXLSXLoaded();
-    
-    const missingFiles = [];
-    const existingFiles = [];
-
-    for (const file of filesArray) {
-      const nombre = file.nombre ?? file.NombreArchivo;
-      const id = file.id;
-      
-      if (!nombre || !id) continue;
-
-      const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
-      const localData = await loadData(localKey);
-
-      if (!localData || !Array.isArray(localData) || localData.length === 0) {
-        missingFiles.push(file);
-      } else {
-        existingFiles.push(file);
-      }
-    }
-
-    console.log(`📊 Estado de archivos: ${existingFiles.length} ya descargados, ${missingFiles.length} por descargar`);
-
-    // Si no hay archivos faltantes, verificar si hay cambios en metadatos
-    if (missingFiles.length === 0) {
-      const currentSignature = buildFilesSignature(filesArray);
-      const storedSignature = await loadData('filesSignature');
-      
-      if (storedSignature === currentSignature) {
-        console.log('✅ Todos los archivos están actualizados');
-        return false;
-      }
-    }
-
-    // Descargar solo los archivos faltantes
-    if (missingFiles.length > 0) {
-      showOverlay(`Descargando ${missingFiles.length} archivo(s) faltante(s)...`);
-      
-      let downloadedCount = 0;
-      const errors = [];
-
-      for (const file of missingFiles) {
-        const nombre = file.nombre ?? file.NombreArchivo;
-        const id = file.id;
-        const facultadInfo = file.facultadCod ? ` (${file.facultadCod})` : '';
-        
-        try {
-          showOverlay(`Descargando "${nombre}"${facultadInfo} (${downloadedCount + 1}/${missingFiles.length})...`);
-          
-          const fileRes = await authenticatedFetch(`${API_BASE}/download/${id}`);
-          if (!fileRes.ok) {
-            throw new Error(`HTTP ${fileRes.status}: ${fileRes.statusText}`);
-          }
-
-          const blob = await fileRes.blob();
-          showOverlay(`Procesando "${nombre}" (${downloadedCount + 1}/${missingFiles.length})...`);
-          
-          const arrayBuffer = await blob.arrayBuffer();
-          const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
-          const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-          const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
-          await saveData(localKey, jsonData);
-          
-          downloadedCount++;
-          console.log(`✅ Descargado: ${nombre} (${jsonData.length} registros)`);
-          
-        } catch (error) {
-          console.error(`❌ Error descargando ${nombre}:`, error);
-          errors.push({ nombre, error: error.message });
-        }
-      }
-
-      // Mostrar resumen de descargas
-      if (downloadedCount > 0) {
-        showOverlay(`✅ ${downloadedCount} archivo(s) descargado(s) correctamente`);
-        
-        // Actualizar signature después de descargas exitosas
-        const newSignature = buildFilesSignature(filesArray);
-        await saveData('filesSignature', newSignature);
-        await saveData('lastSyncAt', new Date().toISOString());
-        
-        setTimeout(hideOverlay, 2000);
-      }
-
-      // Mostrar errores si los hay
-      if (errors.length > 0) {
-        console.warn(`⚠️ ${errors.length} archivo(s) no se pudieron descargar:`, errors);
-        showOverlay(`⚠️ ${downloadedCount} descargados, ${errors.length} con errores`);
-        setTimeout(hideOverlay, 3000);
-      }
-
-      return downloadedCount > 0;
-    }
-
-    // Solo actualizar signature si no había archivos faltantes pero hay cambios en metadatos
-    const newSignature = buildFilesSignature(filesArray);
-    await saveData('filesSignature', newSignature);
-    await saveData('lastSyncAt', new Date().toISOString());
-    
-    return false;
-
-  } catch (error) {
-    console.error('❌ Error en sincronización de archivos:', error);
-    
-    // Mostrar error amigable al usuario
-    showOverlay('❌ Error al verificar archivos del servidor');
-    setTimeout(hideOverlay, 3000);
-    
-    return false;
-  }
-}
-
-  // ---------- Detectar último periodo ----------
-  function findLatestPeriod(periods) {
-    return periods.sort((a, b) => String(b).localeCompare(String(a)))[0];
-  }
-
-  async function applyLatestPeriodFromReport() {
-    const TOTAL_KEY = 'academicTrackingData_' + normalizeFileName('REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL_TOTAL.xlsx');
-    let data = await loadData(TOTAL_KEY);
-
-    if (!Array.isArray(data) || data.length === 0) {
-      const ALT_KEY = 'academicTrackingData_' + normalizeFileName('REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL.xlsx');
-      data = await loadData(ALT_KEY);
-      if (!Array.isArray(data) || data.length === 0) {
-        console.warn('ℹ️ No se encontró dataset TOTAL ni PARCIAL para obtener PERIODO.');
-        return;
-      }
-    }
-
-    const periods = [...new Set(
-      data.map(r => (r['PERIODO'] ?? '').toString().trim()).filter(Boolean)
-    )];
-
-    if (periods.length === 0) {
-      console.warn('ℹ️ No se encontraron valores de PERIODO en el dataset.');
-      return;
-    }
-
-    const latest = findLatestPeriod(periods);
-    const filtered = data.filter(r => (r['PERIODO'] ?? '').toString().trim() === latest);
-
-    localStorage.setItem('selectedPeriod', latest);
-    await saveData('academicTrackingData_REPORTE_POR_SEMESTRE', filtered);
-    await saveData('lastPeriodUpdatedAt', new Date().toISOString());
-  }
-
-  // ---------- Mostrar información en el NAVBAR (reemplaze displayUserInfo) ----------
-  function getInitials(name = '') {
-    try {
-      const parts = name.trim().split(/\s+/);
-      if (!parts.length) return '';
-      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-    } catch { return ''; }
-  }
-  function escapeHtml(str = '') {
-    return String(str).replace(/[&<>"'`]/g, (s) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[s]));
-  }
-
-  function displayNavbarInfo() {
+  // ---------- Mostrar información del usuario ----------
+  function displayUserInfo() {
     const userInfoContainer = document.getElementById('navbar-userinfo');
     if (!userInfoContainer || !currentUser) return;
 
-    const name = getUsernameFromUserData(currentUser) || 'Sin nombre';
-    const role = currentUser.rolNombre || 'No definido';
-    const faculty = currentUser.facultadNombre || currentUser.facultadCod || 'No asignada';
+    const name = currentUser.usuario || 'Sin nombre';
+    const role = currentUser.rol || 'Sin rol';
+    const faculty = currentUser.facultad || 'Sin facultad';
     const initials = getInitials(name);
 
     userInfoContainer.innerHTML = `
       <div class="user-block" title="${escapeHtml(name)} — ${escapeHtml(role)}">
-        <div class="avatar" aria-hidden="true">${initials}</div>
+        <div class="avatar">${initials}</div>
         <div class="user-meta">
           <div class="user-name">${escapeHtml(name)}</div>
           <div class="user-tags">
@@ -440,184 +287,283 @@ document.addEventListener('DOMContentLoaded', async () => {
       </div>
     `;
 
-    // Conectar botón cerrar sesión
+    // Botón logout
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
       logoutBtn.onclick = async () => {
         await removeData('isLoggedIn');
         await removeData('sessionExpiresAt');
         await removeData('userData');
-        await removeData('modulePermissions');
-        await removeData('currentUserInfo');
+        await removeData('userPermissions');
         location.href = 'login.html';
       };
     }
-    // const fullName = `${currentUser.nombres || ''} ${currentUser.apellidos || ''}`.trim();
-    // const displayName = fullName || currentUser.usuario; // si no hay nombres, muestra el usuario
-
   }
 
-  
+  function getInitials(name = '') {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
 
-  // ---------- Menú con validación de permisos ----------
-  async function populateMenu() {
+  function escapeHtml(str = '') {
+    return String(str).replace(/[&<>"']/g, (s) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[s]));
+  }
+
+  // ---------- Crear menú basado en permisos ----------
+  async function createMenu() {
     if (!menuContainer || !menuGrid) return;
 
-    // Cargar permisos desde el backend
-    const permissions = await loadModulePermissions();
-    const isAdmin = getRoleFromUserData(currentUser) === 'admin';
-    const username = getUsernameFromUserData(currentUser);
+    const permissions = await loadUserPermissions();
+    const userRole = currentUser?.rol?.toLowerCase() || '';
 
-    const allMenuItems = [
-      { 
-        id: 'academic-tracking', 
-        icon: 'fas fa-user-check', 
-        title: 'Seguimiento Académico', 
-        description: 'Notificaciones a docente y estudiantes por 2da y 3era vez registrados', 
-        url: 'Modules/academic-tracking.html' 
+    // Definir módulos disponibles
+    const modules = [
+      {
+        id: 'academic-tracking',
+        icon: 'fas fa-user-check',
+        title: 'Seguimiento Académico',
+        description: 'Notificaciones a docente y estudiantes por 2da y 3era vez registrados',
+        url: 'Modules/academic-tracking.html',
+        roles: ['admin', 'decano', 'coordinador']
       },
-      { 
-        id: 'nee-control', 
-        icon: 'fas fa-child', 
-        title: 'Control NEE', 
-        description: 'Seguimiento a estudiantes con necesidades especiales', 
-        url: 'Modules/nee-control.html' 
+      {
+        id: 'nee-control',
+        icon: 'fas fa-child',
+        title: 'Control NEE',
+        description: 'Seguimiento a estudiantes con necesidades especiales',
+        url: 'Modules/nee-control.html',
+        roles: ['admin', 'decano', 'coordinador']
       },
-      { 
-        id: 'tercera-matricula', 
-        icon: 'fas fa-users', 
-        title: 'Tercera Matrícula', 
-        description: 'Notificaciones para estudiantes con tercera matricula NO registrados', 
-        url: 'Modules/tercera-matricula.html' 
+      {
+        id: 'tercera-matricula',
+        icon: 'fas fa-users',
+        title: 'Tercera Matrícula',
+        description: 'Notificaciones para estudiantes con tercera matricula NO registrados',
+        url: 'Modules/tercera-matricula.html',
+        roles: ['admin', 'decano', 'coordinador']
       },
-      { 
-        id: 'control-parcial', 
-        icon: 'fas fa-clipboard', 
-        title: 'Control Parcial', 
-        description: 'Estudiantes reprobados por asistencia o calificación hasta 1er. parcial', 
-        url: 'Modules/control-parcial.html' 
+      {
+        id: 'control-parcial',
+        icon: 'fas fa-clipboard',
+        title: 'Control Parcial',
+        description: 'Estudiantes reprobados por asistencia o calificación hasta 1er. parcial',
+        url: 'Modules/control-parcial.html',
+        roles: ['admin', 'decano', 'coordinador']
       },
-      { 
-        id: 'control-final', 
-        icon: 'fas fa-flag-checkered', 
-        title: 'Control Final', 
-        description: 'Estudiantes reprobados final parcial', 
-        url: 'Modules/control-final.html' 
+      {
+        id: 'control-final',
+        icon: 'fas fa-flag-checkered',
+        title: 'Control Final',
+        description: 'Estudiantes reprobados final parcial',
+        url: 'Modules/control-final.html',
+        roles: ['admin', 'decano', 'coordinador']
       },
-      { 
-        id: 'top-promedios', 
-        icon: 'fas fa-trophy', 
-        title: 'Top Promedios', 
-        description: 'Consulta de los tops 5 en promedio por carrera', 
-        url: 'Modules/top-promedios.html' 
+      {
+        id: 'top-promedios',
+        icon: 'fas fa-trophy',
+        title: 'Top Promedios',
+        description: 'Consulta de los tops 5 en promedio por carrera',
+        url: 'Modules/top-promedios.html',
+        roles: ['admin', 'decano', 'coordinador', 'operador']
       },
-      { 
-        id: 'consulta-estudiante', 
-        icon: 'fas fa-graduation-cap', 
-        title: 'Consulta Estudiante', 
-        description: 'Revisión de historial académico por estudiante', 
-        url: 'Modules/consulta-estudiante.html' 
+      {
+        id: 'consulta-estudiante',
+        icon: 'fas fa-graduation-cap',
+        title: 'Consulta Estudiante',
+        description: 'Revisión de historial académico por estudiante',
+        url: 'Modules/consulta-estudiante.html',
+        roles: ['admin', 'decano', 'coordinador', 'operador']
       },
-      { 
-        id: 'consulta-docente', 
-        icon: 'fas fa-user', 
-        title: 'Consulta Docente', 
-        description: 'Revisión de historial académico por Docente', 
-        url: 'Modules/consulta-docente.html' 
+      {
+        id: 'consulta-docente',
+        icon: 'fas fa-user',
+        title: 'Consulta Docente',
+        description: 'Revisión de historial académico por Docente',
+        url: 'Modules/consulta-docente.html',
+        roles: ['admin', 'decano', 'coordinador', 'operador']
       },
-      { 
-        id: 'distribucion-docente', 
-        icon: 'fas fa-chalkboard-teacher', 
-        title: 'Distribución Docente', 
-        description: 'Carga académica y clases (mapa calor)', 
-        url: 'Modules/distribucion-docente.html' 
+      {
+        id: 'distribucion-docente',
+        icon: 'fas fa-chalkboard-teacher',
+        title: 'Distribución Docente',
+        description: 'Carga académica y clases (mapa calor)',
+        url: 'Modules/distribucion-docente.html',
+        roles: ['admin', 'decano']
       },
-      { 
-        id: 'reportes', 
-        icon: 'fas fa-chart-bar', 
-        title: 'Reportes', 
-        description: 'Estadística general de los datos ingresados', 
-        url: 'Modules/reportes.html' 
+      {
+        id: 'reportes',
+        icon: 'fas fa-chart-bar',
+        title: 'Reportes',
+        description: 'Estadística general de los datos ingresados',
+        url: 'Modules/reportes.html',
+        roles: ['admin', 'decano', 'rector']
       },
-      { 
-        id: 'config', 
-        icon: 'fas fa-cogs', 
-        title: 'Configuración', 
-        description: 'Configuración y parametrizaciones generales del sistema', 
-        url: 'Modules/config.html' 
+      {
+        id: 'config',
+        icon: 'fas fa-cogs',
+        title: 'Configuración',
+        description: 'Configuración y parametrizaciones generales del sistema',
+        url: 'Modules/config.html',
+        roles: ['admin', 'decano', 'rector']
       }
     ];
 
-    // Filtrar módulos según permisos
-    const allowedItems = allMenuItems.filter(item => permissions[item.id] === true);
+    // Filtrar módulos según el rol del usuario
+    const allowedModules = modules.filter(module =>
+      module.roles.includes(userRole)
+    );
 
     // Agregar panel de administración si es admin
-    if (permissions['admin-panel']) {
-      allowedItems.push({
+    if (userRole === 'admin') {
+      allowedModules.push({
         id: 'admin-panel',
         icon: 'fas fa-user-shield',
         title: 'Administración',
         description: 'Panel de administración de usuarios y sistema',
-        onClick: () => openAdmin(username)
+        onClick: openAdminPanel
       });
     }
 
-    // Mostrar mensaje si no tiene permisos
-    if (allowedItems.length === 0) {
+    // Mostrar mensaje si no hay módulos disponibles
+    if (allowedModules.length === 0) {
       menuGrid.innerHTML = `
         <div class="no-permissions">
           <i class="fas fa-lock"></i>
           <h3>Sin permisos asignados</h3>
-          <p>Contacta al administrador para obtener acceso a los módulos del sistema.</p>
+          <p>Contacta al administrador para obtener acceso a los módulos.</p>
         </div>
       `;
       return;
     }
 
-    // Renderizar elementos del menú
+    // Crear elementos del menú
     menuGrid.innerHTML = '';
-    for (const item of allowedItems) {
-      const el = document.createElement('a');
-      el.className = 'menu-item';
-      el.innerHTML = `
-        <i class="${item.icon}"></i>
-        <h3>${item.title}</h3>
-        <p>${item.description}</p>
+    allowedModules.forEach(module => {
+      const element = document.createElement('a');
+      element.className = 'menu-item';
+      element.innerHTML = `
+        <i class="${module.icon}"></i>
+        <h3>${module.title}</h3>
+        <p>${module.description}</p>
       `;
-      
-      if (item.onClick) {
-        el.href = '#';
-        el.addEventListener('click', (e) => { 
-          e.preventDefault(); 
-          item.onClick(); 
+
+      if (module.onClick) {
+        element.href = '#';
+        element.addEventListener('click', (e) => {
+          e.preventDefault();
+          module.onClick();
         });
       } else {
-        el.href = item.url;
+        element.href = module.url;
       }
-      
-      menuGrid.appendChild(el);
-    }
-    
+
+      menuGrid.appendChild(element);
+    });
   }
 
-  async function openAdmin(username) {
+  async function openAdminPanel() {
     try {
-      const resp = await authenticatedFetch(`${API_BASE}/admin/link`, {
-        method: 'POST',
-        body: JSON.stringify({ usuario: username })
+      showOverlay('Accediendo al panel de administración...');
+
+      const response = await apiRequest(`${API_BASE}/admin/panel`, {
+        method: 'POST'
       });
-      
-      if (!resp.ok) {
-        alert('No tienes permisos para acceder al panel de administración.');
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Error response:', response.status, errorData);
+
+        hideOverlay();
+        alert(`No tienes permisos para acceder al panel de administración. Status: ${response.status}`);
         return;
       }
-      
-      const { url } = await resp.json();
-      window.location.href = url;
-    } catch (e) {
-      console.error(e);
-      alert('Error al solicitar acceso a la administración.');
+
+      const data = await response.json();
+      console.log('Admin panel response:', data);
+
+      hideOverlay();
+
+      // Opción 1: Redirección relativa
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        // Opción 2: URL directa como fallback
+        window.location.href = 'Modules/panel-admin.html';
+      }
+
+    } catch (error) {
+      console.error('Error abriendo panel admin:', error);
+      hideOverlay();
+      alert('Error de conexión al acceder al panel de administración');
     }
+  }
+
+  // ---------- Configuración del tema ----------
+  function setupThemeToggle() {
+    let btn = document.getElementById('theme-toggle');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'theme-toggle';
+      document.body.appendChild(btn);
+    }
+
+    function updateTheme() {
+      const isDark = document.documentElement.classList.contains('dark-mode');
+      btn.textContent = isDark ? '☀️' : '🌙';
+      btn.title = isDark ? 'Modo claro' : 'Modo oscuro';
+    }
+
+    // Aplicar tema guardado
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme === 'dark') {
+      document.documentElement.classList.add('dark-mode');
+    }
+
+    btn.addEventListener('click', () => {
+      const isDark = document.documentElement.classList.toggle('dark-mode');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      updateTheme();
+    });
+
+    updateTheme();
+  }
+
+  // ---------- Detectar último período ----------
+  function findLatestPeriod(periods) {
+    return periods.sort((a, b) => String(b).localeCompare(String(a)))[0];
+  }
+
+  async function updateLatestPeriod() {
+    const totalKey = 'academicTrackingData_' + normalizeFileName('REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL_TOTAL.xlsx');
+    let data = await loadData(totalKey);
+
+    if (!Array.isArray(data) || data.length === 0) {
+      const altKey = 'academicTrackingData_' + normalizeFileName('REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL.xlsx');
+      data = await loadData(altKey);
+      if (!Array.isArray(data) || data.length === 0) {
+        console.warn('No se encontró dataset para obtener período');
+        return;
+      }
+    }
+
+    const periods = [...new Set(
+      data.map(r => (r['PERIODO'] || '').toString().trim()).filter(Boolean)
+    )];
+
+    if (periods.length === 0) {
+      console.warn('No se encontraron períodos');
+      return;
+    }
+
+    const latest = findLatestPeriod(periods);
+    const filtered = data.filter(r => (r['PERIODO'] || '').toString().trim() === latest);
+
+    localStorage.setItem('selectedPeriod', latest);
+    await saveData('academicTrackingData_REPORTE_POR_SEMESTRE', filtered);
+    console.log(`Período actualizado: ${latest}`);
   }
 
   // ---------- Flujo principal ----------
@@ -627,35 +573,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Validar rol actualizado desde backend
-  await validateRoleAndRefreshIfChanged();
-  if (__roleReloading) return;
+  // Cargar perfil del usuario
+  await loadUserProfile();
 
   // Mostrar información del usuario
-  displayNavbarInfo();
-
+  displayUserInfo();
 
   // Cargar plantillas de email
-  await ensureEmailTemplates();
+  await loadEmailTemplates();
 
-  // Sincronizar archivos (ahora filtrados por facultad)
-  showOverlay('Verificando archivos de tu facultad...');
-  const didSync = await syncFilesFromBackendIfNeeded();
-
+  // Sincronizar archivos
+  const didSync = await syncFiles();
   if (didSync) {
-    await applyLatestPeriodFromReport();
-    showOverlay('Archivos sincronizados correctamente');
-    setTimeout(hideOverlay, 1500);
+    await updateLatestPeriod();
   } else {
     hideOverlay();
   }
 
-  // Cargar y renderizar menú con permisos
-  await populateMenu();
+  // Crear menú
+  await createMenu();
 
-  console.log('Sistema SISA iniciado correctamente para:', {
+  console.log('Sistema iniciado para:', {
     usuario: currentUser.usuario,
-    rol: currentUser.rolNombre,
-    facultad: currentUser.facultadNombre || currentUser.facultadCod
+    rol: currentUser.rol,
+    facultad: currentUser.facultad
   });
 });

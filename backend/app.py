@@ -1,15 +1,16 @@
-from dotenv import load_dotenv
 import os
-from flask import send_from_directory, Flask, request, jsonify, send_file
-from flask_cors import CORS
-from pathlib import Path
 from io import BytesIO
-import secrets, time
+from pathlib import Path
+
+import msal
 import requests
+from dotenv import load_dotenv
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
+
 from database import (
     guardar_archivo_excel,
     listar_archivos_por_facultad,
-    obtener_archivo_por_facultad,
     guardar_plantillas_por_tipo,
     obtener_plantillas_por_tipo,
     conectar,
@@ -23,7 +24,6 @@ from database import (
     obtener_correo_autoridad,
     actualizar_correo_autoridad
 )
-import msal
 
 # ======================= CARGA .ENV ===========================
 BASE_DIR = Path(__file__).resolve().parent
@@ -42,63 +42,87 @@ CLIENT_ID = os.getenv("MS_CLIENT_ID")
 CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET")
 TENANT_ID = os.getenv("MS_TENANT_ID", "250f76e7-6105-42e3-82d0-be7c460aea59")
 SCOPES = ["https://graph.microsoft.com/.default"]
-REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))  # segundos
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
 
 # ======================= INICIALIZACIÓN BD ===========================
 print("🚀 Iniciando aplicación FACAF...")
 if inicializar_base_datos():
     print("✅ Sistema listo - Base de datos inicializada correctamente")
 else:
-    print("❌ ADVERTENCIA: Problemas en inicialización de BD. Algunas funciones pueden fallar.")
-
-try:
-    conn = conectar()
-    conn.close()
-    print("✅ Conexión final exitosa con FACAFDB")
-except Exception as e:
-    print(f"❌ Error de conexión final: {e}")
+    print("❌ ADVERTENCIA: Problemas en inicialización de BD")
 
 
-# ======================= MIDDLEWARE DE AUTENTICACIÓN ===========================
-def get_user_from_request():
-    """Obtiene información del usuario desde headers de autenticación"""
+# ======================= AUTENTICACIÓN  ===========================
+def get_current_user():
+    """Obtiene el usuario actual desde los headers con logging detallado"""
     user_email = request.headers.get('X-User-Email')
+
     if not user_email:
+        print("❌ get_current_user: No X-User-Email header found")
+        print(f"📋 Available headers: {dict(request.headers)}")
         return None
-    return obtener_usuario_por_usuario(user_email)
+
+    print(f"🔍 get_current_user: Looking for user '{user_email}'")
+
+    try:
+        user = obtener_usuario_por_usuario(user_email)
+        if user:
+            print(f"✅ get_current_user: Found user {user_email} with role {user.get('rolNombre')}")
+        else:
+            print(f"❌ get_current_user: User {user_email} not found in database")
+
+        return user
+    except Exception as e:
+        print(f"❌ get_current_user: Database error for {user_email}: {e}")
+        return None
 
 
-def require_auth(f):
-    """Decorador que requiere autenticación"""
+def require_login(f):
+    """Decorador simple que solo requiere estar logueado"""
     from functools import wraps
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        user = get_user_from_request()
+        user = get_current_user()
         if not user:
-            return jsonify({'error': 'Authentication required'}), 401
+            return jsonify({'error': 'No autenticado'}), 401
         if not user.get('estado'):
-            return jsonify({'error': 'User is inactive'}), 403
-        request.user = user
+            return jsonify({'error': 'Usuario inactivo'}), 403
+
+        # Agregar usuario al request para usarlo en los endpoints
+        request.current_user = user
         return f(*args, **kwargs)
 
     return decorated_function
 
 
-def require_role(required_roles):
+def require_role(*roles):
     """Decorador que requiere roles específicos"""
 
     def decorator(f):
         from functools import wraps
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            user = getattr(request, 'user', None)
+            user = getattr(request, 'current_user', None)
             if not user:
-                return jsonify({'error': 'Authentication required'}), 401
+                print("❌ require_role: No current_user found - missing @require_login?")
+                return jsonify({'error': 'No autenticado - falta contexto de usuario'}), 401
 
-            user_role = user.get('rolNombre', '').lower()
-            if user_role not in [role.lower() for role in required_roles]:
-                return jsonify({'error': 'Insufficient permissions'}), 403
+            # Normalizar rol (minúsculas, sin espacios)
+            user_role = (user.get('rolNombre') or '').strip().lower()
+            required_roles = [role.strip().lower() for role in roles]
 
+            print(f"🔍 Role check: user={user.get('usuario')}, role='{user_role}', required={required_roles}")
+
+            if user_role not in required_roles:
+                print(f"❌ Access DENIED: '{user_role}' not in {required_roles}")
+                return jsonify({
+                    'error': 'Permisos insuficientes',
+                    'userRole': user_role,
+                    'requiredRoles': list(roles),
+                    'message': f'Se requiere uno de estos roles: {", ".join(roles)}'
+                }), 403
+
+            print(f"✅ Access GRANTED for {user.get('usuario')} with role '{user_role}'")
             return f(*args, **kwargs)
 
         return decorated_function
@@ -106,10 +130,89 @@ def require_role(required_roles):
     return decorator
 
 
+# ======================= PERFIL DE USUARIO ===========================
+@app.get('/user/profile')
+@require_login
+def get_user_profile():
+    """Obtiene el perfil del usuario actual"""
+    user = request.current_user
+    return jsonify({
+        'id': user['id'],
+        'usuario': user['usuario'],
+        'rol': user['rolNombre'],
+        'rolId': user['rolId'],
+        'facultad': user['facultadNombre'],
+        'facultadCod': user['facultadCod'],
+        'carrera': user['carreraNombre'],
+        'carreraCod': user['carreraCod'],
+        'estado': user['estado']
+    })
+
+
+@app.get('/user/permissions')
+@require_login
+def get_user_permissions():
+    """Obtiene los permisos del usuario basado en su rol"""
+    user = request.current_user
+    user_role = user.get('rolNombre', '').lower()
+
+    # Definir permisos por rol
+    permissions = {
+        'admin': {
+            'can_upload': True,
+            'can_delete': True,
+            'can_view_all_faculties': True,
+            'can_manage_users': True,
+            'can_send_emails': True,
+            'can_edit_templates': True,
+            'can_access_admin_panel': True
+        },
+        'decano': {
+            'can_upload': True,
+            'can_delete': True,
+            'can_view_all_faculties': False,
+            'can_manage_users': False,
+            'can_send_emails': True,
+            'can_edit_templates': True,
+            'can_access_admin_panel': False
+        },
+        'coordinador': {
+            'can_upload': True,
+            'can_delete': True,
+            'can_view_all_faculties': False,
+            'can_manage_users': False,
+            'can_send_emails': True,
+            'can_edit_templates': True,
+            'can_access_admin_panel': False
+        },
+        'operador': {
+            'can_upload': False,
+            'can_delete': False,
+            'can_view_all_faculties': False,
+            'can_manage_users': False,
+            'can_send_emails': False,
+            'can_edit_templates': False,
+            'can_access_admin_panel': False
+        }
+    }
+
+    user_permissions = permissions.get(user_role, permissions['operador'])
+
+    return jsonify({
+        'role': user_role,
+        'permissions': user_permissions,
+        'user': {
+            'usuario': user['usuario'],
+            'facultad': user['facultadCod'],
+            'carrera': user['carreraCod']
+        }
+    })
+
+
 # ======================= CATÁLOGOS ===========================
 @app.get('/api/roles')
+@require_login
 def api_get_roles():
-    """Obtiene lista de roles disponibles"""
     try:
         roles = obtener_roles()
         return jsonify(roles)
@@ -118,8 +221,8 @@ def api_get_roles():
 
 
 @app.get('/api/facultades')
+@require_login
 def api_get_facultades():
-    """Obtiene lista de facultades disponibles"""
     try:
         facultades = obtener_facultades()
         return jsonify(facultades)
@@ -128,8 +231,8 @@ def api_get_facultades():
 
 
 @app.get('/api/carreras/<facultad_cod>')
+@require_login
 def api_get_carreras(facultad_cod):
-    """Obtiene carreras de una facultad específica"""
     try:
         carreras = obtener_carreras_por_facultad(facultad_cod)
         return jsonify(carreras)
@@ -137,107 +240,76 @@ def api_get_carreras(facultad_cod):
         return jsonify({'error': str(e)}), 500
 
 
-# ======================= ARCHIVOS CON FacultadCod DESDE FRONTEND ===========================
+# ======================= ARCHIVOS ===========================
 @app.post('/upload')
-@require_auth
+@require_login
 def subir_archivo():
-    """Subida de archivo con FacultadCod enviado desde el frontend"""
+    """Subir archivo - verificar permisos según rol"""
+    user = request.current_user
+    user_role = user.get('rolNombre', '').lower()
+
+    # Solo ciertos roles pueden subir archivos
+    if user_role not in ['admin', 'decano', 'coordinador']:
+        return jsonify({'error': 'No tienes permisos para subir archivos'}), 403
+
     archivo = request.files.get('file')
     if not archivo or archivo.filename.strip() == '':
-        return jsonify({'error': 'No se envió archivo o nombre vacío'}), 400
+        return jsonify({'error': 'No se envió archivo'}), 400
 
-    # Obtener FacultadCod desde el formulario o parámetros
     facultad_cod = request.form.get('facultadCod') or request.args.get('facultadCod')
     if not facultad_cod:
         return jsonify({'error': 'FacultadCod es requerido'}), 400
 
-    # Validar que el FacultadCod existe en la base de datos
-    try:
-        conn = conectar()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM Facultad WHERE FacultadCod = ?", (facultad_cod,))
-        existe_facultad = cur.fetchone()[0] > 0
-        cur.close()
-        conn.close()
-
-        if not existe_facultad:
-            return jsonify({'error': f'FacultadCod {facultad_cod} no existe'}), 400
-    except Exception as e:
-        return jsonify({'error': f'Error validando facultad: {e}'}), 500
-
-    # Validación de permisos por rol
-    user_role = request.user.get('rolNombre', '').lower()
-    user_facultad = request.user.get('facultadCod')
-
-    # Admin puede subir a cualquier facultad
-    # Otros usuarios solo pueden subir a su propia facultad
-    if user_role != 'admin' and facultad_cod != user_facultad:
-        return jsonify({'error': 'No tienes permisos para subir archivos a esta facultad'}), 403
+    # Verificar permisos de facultad
+    if user_role != 'admin' and facultad_cod != user['facultadCod']:
+        return jsonify({'error': 'Solo puedes subir archivos a tu facultad'}), 403
 
     try:
         guardar_archivo_excel(archivo, facultad_cod)
         return jsonify({
-            'message': f'Archivo "{archivo.filename}" guardado correctamente para facultad {facultad_cod}',
+            'message': f'Archivo "{archivo.filename}" guardado correctamente',
             'facultadCod': facultad_cod
         }), 200
     except Exception as e:
-        print(f"❌ Error en upload: {e}")
-        return jsonify({'error': f'No se pudo guardar: {e}'}), 500
+        return jsonify({'error': f'Error al guardar: {e}'}), 500
 
 
 @app.get('/files')
-@require_auth
-def listar():
-    """Lista archivos con FacultadCod opcional desde query params"""
-    try:
-        user_role = request.user.get('rolNombre', '').lower()
-        user_facultad = request.user.get('facultadCod')
+@require_login
+def listar_archivos():
+    """Listar archivos según permisos del usuario"""
+    user = request.current_user
+    user_role = user.get('rolNombre', '').lower()
 
-        # Obtener FacultadCod desde query params
+    # Determinar qué archivos puede ver
+    if user_role == 'admin':
+        # Admin puede ver archivos de cualquier facultad
         facultad_filter = request.args.get('facultadCod')
+    else:
+        # Otros usuarios solo ven archivos de su facultad
+        facultad_filter = user['facultadCod']
 
-        # Validación de permisos
-        if user_role == 'admin':
-            # Admin puede ver archivos de cualquier facultad o todas
-            facultad_cod = facultad_filter  # Usar el filtro enviado o None para ver todas
-        else:
-            # Otros usuarios solo pueden ver archivos de su facultad
-            if facultad_filter and facultad_filter != user_facultad:
-                return jsonify({'error': 'No tienes permisos para ver archivos de esta facultad'}), 403
-            facultad_cod = user_facultad  # Forzar a su propia facultad
-
-        archivos = listar_archivos_por_facultad(facultad_cod)
-
-        response_data = {
+    try:
+        archivos = listar_archivos_por_facultad(facultad_filter)
+        return jsonify({
             'archivos': archivos,
-            'facultadFiltro': facultad_cod,
-            'total': len(archivos)
-        }
-
-        # Info adicional para admin
-        if user_role == 'admin':
-            response_data['debug_info'] = {
-                'user_role': user_role,
-                'user_facultad': user_facultad,
-                'filtro_aplicado': facultad_cod
-            }
-
-        return jsonify(response_data)
-
+            'facultadFiltro': facultad_filter,
+            'total': len(archivos),
+            'userRole': user_role
+        })
     except Exception as e:
-        print(f"❌ Error listando archivos: {e}")
-        return jsonify({'error': f'Error al listar archivos: {e}'}), 500
+        return jsonify({'error': f'Error al listar: {e}'}), 500
 
 
 @app.get('/download/<int:archivo_id>')
-@require_auth
-def descargar(archivo_id):
-    """Descarga archivo con validación de facultad opcional"""
-    try:
-        user_role = request.user.get('rolNombre', '').lower()
-        user_facultad = request.user.get('facultadCod')
+@require_login
+def descargar_archivo(archivo_id):
+    """Descargar archivo con verificación de permisos"""
+    user = request.current_user
+    user_role = user.get('rolNombre', '').lower()
 
-        # Obtener información del archivo primero
+    try:
+        # Verificar que el archivo existe y obtener info
         conn = conectar()
         cur = conn.cursor()
         cur.execute("""
@@ -254,8 +326,8 @@ def descargar(archivo_id):
 
         nombre, tipo, contenido, archivo_facultad = archivo_info
 
-        # Validación de permisos
-        if user_role != 'admin' and archivo_facultad != user_facultad:
+        # Verificar permisos
+        if user_role != 'admin' and archivo_facultad != user['facultadCod']:
             return jsonify({'error': 'No tienes permisos para descargar este archivo'}), 403
 
         bio = BytesIO(contenido)
@@ -265,50 +337,36 @@ def descargar(archivo_id):
             download_name=nombre,
             mimetype=tipo or 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-
     except Exception as e:
-        print(f"❌ Error descargando archivo: {e}")
-        return jsonify({'error': f'Error al descargar archivo: {e}'}), 500
+        return jsonify({'error': f'Error al descargar: {e}'}), 500
 
 
 @app.delete('/delete/by-name/<string:filename>')
-@require_auth
-def eliminar_archivo_por_nombre(filename):
-    """Elimina archivo por nombre con FacultadCod opcional"""
+@require_role('admin', 'decano', 'coordinador')
+def eliminar_archivo(filename):
+    """Eliminar archivo por nombre"""
+    user = request.current_user
+    user_role = user.get('rolNombre', '').lower()
+
+    facultad_cod = request.args.get('facultadCod')
+
+    # Verificar permisos de facultad
+    if user_role != 'admin':
+        if facultad_cod and facultad_cod != user['facultadCod']:
+            return jsonify({'error': 'No puedes eliminar archivos de otra facultad'}), 403
+        facultad_cod = user['facultadCod']
+
     try:
-        user_role = request.user.get('rolNombre', '').lower()
-        user_facultad = request.user.get('facultadCod')
-
-        # Obtener FacultadCod desde query params
-        facultad_cod = request.args.get('facultadCod')
-
-        # Validación de permisos
-        if user_role != 'admin':
-            if facultad_cod and facultad_cod != user_facultad:
-                return jsonify({'error': 'No tienes permisos para eliminar archivos de esta facultad'}), 403
-            # Forzar a su propia facultad si no especifica
-            facultad_cod = user_facultad
-
         conn = conectar()
         cursor = conn.cursor()
 
         if user_role == 'admin' and not facultad_cod:
-            # Admin puede eliminar sin especificar facultad
             cursor.execute("DELETE FROM ArchivosExcel WHERE NombreArchivo = ?", (filename,))
         else:
-            # Eliminar con filtro de facultad
             cursor.execute("""
                 DELETE FROM ArchivosExcel 
                 WHERE NombreArchivo = ? AND FacultadCod = ?
             """, (filename, facultad_cod))
-
-            # Si no se eliminó, intentar con nombre único
-            if cursor.rowcount == 0:
-                nombre_unico = f"{filename}_{facultad_cod}"
-                cursor.execute("""
-                    DELETE FROM ArchivosExcel 
-                    WHERE NombreArchivo = ? AND FacultadCod = ?
-                """, (nombre_unico, facultad_cod))
 
         rows_affected = cursor.rowcount
         conn.commit()
@@ -316,176 +374,35 @@ def eliminar_archivo_por_nombre(filename):
         conn.close()
 
         if rows_affected > 0:
-            return jsonify({
-                'message': f'Archivo "{filename}" eliminado correctamente',
-                'facultadCod': facultad_cod
-            }), 200
+            return jsonify({'message': f'Archivo "{filename}" eliminado correctamente'}), 200
         else:
-            return jsonify({'error': f'Archivo "{filename}" no encontrado o sin permisos'}), 404
-
+            return jsonify({'error': 'Archivo no encontrado'}), 404
     except Exception as e:
-        print(f"❌ Error eliminando archivo: {e}")
-        return jsonify({'error': f'Error al eliminar archivo: {e}'}), 500
+        return jsonify({'error': f'Error al eliminar: {e}'}), 500
 
 
-# ======================= ENDPOINT DE DEBUG PARA VERIFICAR ARCHIVOS ===========================
-@app.get('/debug/files')
-@require_auth
-@require_role(['admin'])
-def debug_files():
-    """Endpoint de debug solo para admin - muestra todos los archivos con detalles"""
-    try:
-        conn = conectar()
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT a.Id, a.NombreArchivo, a.FechaSubida, a.FacultadCod, 
-                   f.Nombre as FacultadNombre, a.TipoMime,
-                   LEN(a.Datos) as TamanoBytes
-            FROM ArchivosExcel a
-            INNER JOIN Facultad f ON a.FacultadCod = f.FacultadCod
-            ORDER BY a.FechaSubida DESC
-        """)
-
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        archivos_debug = []
-        for row in rows:
-            archivos_debug.append({
-                'id': row[0],
-                'nombre': row[1],
-                'fecha': row[2].strftime('%Y-%m-%d %H:%M:%S') if row[2] else None,
-                'facultadCod': row[3],
-                'facultadNombre': row[4],
-                'tipoMime': row[5],
-                'tamanoKB': round(row[6] / 1024, 2) if row[6] else 0
-            })
-
-        return jsonify({
-            'total_archivos': len(archivos_debug),
-            'archivos': archivos_debug,
-            'usuario_actual': {
-                'role': request.user.get('rolNombre'),
-                'facultad': request.user.get('facultadCod'),
-                'usuario': request.user.get('usuario')
-            }
-        })
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-# ======================= ENDPOINT PARA LIMPIAR ARCHIVOS DUPLICADOS ===========================
-@app.post('/admin/cleanup-duplicates')
-@require_auth
-@require_role(['admin'])
-def cleanup_duplicates():
-    """Limpia archivos duplicados manteniendo el más reciente"""
-    try:
-        conn = conectar()
-        cur = conn.cursor()
-
-        # Encontrar duplicados por nombre
-        cur.execute("""
-            SELECT NombreArchivo, COUNT(*) as Duplicados
-            FROM ArchivosExcel 
-            GROUP BY NombreArchivo 
-            HAVING COUNT(*) > 1
-        """)
-
-        duplicados = cur.fetchall()
-        archivos_eliminados = 0
-
-        for nombre_archivo, count in duplicados:
-            # Para cada archivo duplicado, mantener solo el más reciente
-            cur.execute("""
-                DELETE FROM ArchivosExcel 
-                WHERE NombreArchivo = ? AND Id NOT IN (
-                    SELECT TOP 1 Id FROM ArchivosExcel 
-                    WHERE NombreArchivo = ? 
-                    ORDER BY FechaSubida DESC
-                )
-            """, (nombre_archivo, nombre_archivo))
-
-            archivos_eliminados += cur.rowcount
-
-        conn.commit()
-        cur.close()
-        conn.close()
-
-        return jsonify({
-            'message': f'Limpieza completada: {archivos_eliminados} archivos duplicados eliminados',
-            'duplicados_encontrados': len(duplicados)
-        })
-
-    except Exception as e:
-        return jsonify({'error': f'Error en limpieza: {e}'}), 500
-
-# ======================= PLANTILLAS CON VALIDACIÓN DE PERMISOS ===========================
+# ======================= PLANTILLAS ===========================
 @app.get('/plantillas')
-@require_auth
+@require_login
 def get_plantillas():
-    """Obtiene plantillas por tipo específico"""
     try:
         tipo = request.args.get('tipo', 'seguimiento')
-
-        # Validar que el tipo es válido
-        tipos_validos = ['seguimiento', 'nee', 'tercera_matricula', 'parcial', 'final']
-        if tipo not in tipos_validos:
-            return jsonify({
-                'error': f'Tipo no válido. Tipos disponibles: {", ".join(tipos_validos)}'
-            }), 400
-
         data = obtener_plantillas_por_tipo(tipo)
-
         return jsonify({
             'tipo': tipo,
-            'plantillas': data,
-            'tipos_disponibles': tipos_validos
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.get('/plantillas/tipos')
-@require_auth
-def get_tipos_plantillas():
-    """Obtiene todos los tipos de plantillas disponibles"""
-    try:
-        conn = conectar()
-        cur = conn.cursor()
-        cur.execute("SELECT DISTINCT Tipo FROM PlantillasCorreo ORDER BY Tipo")
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-
-        tipos = [row[0] for row in rows]
-        return jsonify({
-            'tipos': tipos,
-            'total': len(tipos)
+            'plantillas': data
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 @app.post('/plantillas')
-@require_auth
-@require_role(['admin', 'coordinador'])
+@require_role('admin', 'coordinador', 'decano')
 def update_plantillas():
-    """Actualiza plantillas por tipo específico"""
     try:
         datos = request.get_json(silent=True) or {}
         tipo = datos.get('tipo', 'seguimiento')
 
-        # Validar que el tipo es válido
-        tipos_validos = ['seguimiento', 'nee', 'tercera_matricula', 'parcial', 'final']
-        if tipo not in tipos_validos:
-            return jsonify({
-                'error': f'Tipo no válido. Tipos disponibles: {", ".join(tipos_validos)}'
-            }), 400
-
-        # Extraer plantillas (sin incluir 'tipo' en los datos a guardar)
         plantillas_data = {
             'autoridad': datos.get('autoridad', ''),
             'docente': datos.get('docente', ''),
@@ -493,205 +410,230 @@ def update_plantillas():
         }
 
         guardar_plantillas_por_tipo(plantillas_data, tipo)
-
-        return jsonify({
-            'message': f'Plantillas de tipo "{tipo}" actualizadas correctamente',
-            'tipo': tipo
-        })
+        return jsonify({'message': f'Plantillas actualizadas correctamente'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-# ======================= USUARIOS CON VALIDACIÓN AVANZADA ===========================
-@app.post("/usuarios")
-@require_auth
-@require_role(['admin'])
-def api_crear_usuario():
-    """Solo admin puede crear usuarios"""
-    data = request.get_json(silent=True) or {}
-    usuario = (data.get("usuario") or "").strip()
-    rol_id = data.get("rolId")
-    facultad_cod = data.get("facultadCod")
-    carrera_cod = data.get("carreraCod")
-    activo = data.get("activo", True)
-
-    if not all([usuario, rol_id, facultad_cod]):
-        return jsonify({"error": "Campos obligatorios: usuario, rolId, facultadCod"}), 400
-
+# ======================= CORREO AUTORIDAD ===========================
+@app.get('/correo-autoridad')
+@require_login
+def get_correo_autoridad_endpoint():
     try:
-        creado = crear_usuario(usuario, rol_id, facultad_cod, carrera_cod, bool(activo))
-        return jsonify({"message": "Usuario creado", "data": creado}), 201
+        correo = obtener_correo_autoridad()
+        return jsonify({'correoAutoridad': correo})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': str(e)}), 500
 
 
-@app.get("/usuarios")
-@require_auth
-def api_listar_usuarios():
-    """Lista usuarios con filtros según el rol del usuario autenticado"""
+@app.post('/correo-autoridad')
+@require_role('admin', 'coordinador', 'decano')
+def update_correo_autoridad_endpoint():
     try:
-        # Parámetros de filtrado
-        q = request.args.get("q", "").strip()
+        datos = request.get_json(silent=True) or {}
+        correo_autoridad = datos.get('correoAutoridad', '').strip()
+
+        if not correo_autoridad:
+            return jsonify({'error': 'correoAutoridad es requerido'}), 400
+
+        # Validación básica de email
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, correo_autoridad):
+            return jsonify({'error': 'Formato de correo inválido'}), 400
+
+        success = actualizar_correo_autoridad(correo_autoridad)
+
+        if success:
+            return jsonify({'message': 'Correo actualizado correctamente'})
+        else:
+            return jsonify({'error': 'Error al actualizar correo'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ======================= USUARIOS ===========================
+@app.get("/usuarios")
+@require_login
+@require_role('admin', 'decano')
+def api_listar_usuarios():
+    """Listar usuarios según permisos"""
+    try:
+        user = request.current_user
+        user_role = (user.get('rolNombre') or '').strip().lower()
+
+        # Parámetros de consulta
+        q = (request.args.get("q") or "").strip()
         rol_id = request.args.get("rolId", type=int)
         page = max(0, int(request.args.get("page", 0)))
         limit = max(1, min(200, int(request.args.get("limit", 20))))
+        activo_param = request.args.get("activo")  # '1', '0', o None
+
+        # Convertir activo a boolean si es necesario
+        activo_filter = None
+        if activo_param == '1':
+            activo_filter = True
+        elif activo_param == '0':
+            activo_filter = False
+
+        print(f"📋 Listing users: q='{q}', rol_id={rol_id}, page={page}, limit={limit}, activo={activo_filter}")
 
         # Filtro de facultad según permisos
-        user_role = request.user.get('rolNombre', '').lower()
+        facultad_filter = None
         if user_role == 'admin':
-            # Admin puede ver todos
             facultad_filter = request.args.get("facultadCod")
         else:
-            # Otros solo ven de su facultad
-            facultad_filter = request.user.get('facultadCod')
+            facultad_filter = user['facultadCod']
 
         resultado = listar_usuarios_con_filtros(
             facultad_cod=facultad_filter,
             rol_id=rol_id,
             q=q,
             page=page,
-            limit=limit
+            limit=limit,
+            activo=activo_filter  # Pasar el filtro boolean
         )
 
+        print(f"📋 Found {len(resultado.get('data', []))} users (total: {resultado.get('total', 0)})")
         return jsonify(resultado), 200
+
     except Exception as e:
-        return jsonify({"error": f"No se pudo listar usuarios: {e}"}), 500
+        print(f"❌ Error listing users: {e}")
+        return jsonify({"error": f"Error al listar usuarios: {e}"}), 500
 
 
-@app.get("/usuarios/<int:user_id>")
-@require_auth
-def api_obtener_usuario(user_id: int):
-    """Obtiene usuario específico con validación de permisos"""
+@app.post("/usuarios")
+@require_login
+@require_role('admin')
+def api_crear_usuario():
+    """Solo admin puede crear usuarios"""
     try:
+        data = request.get_json(silent=True) or {}
+        usuario = (data.get("usuario") or "").strip()
+        rol_id = data.get("rolId")
+        facultad_cod = data.get("facultadCod")
+        carrera_cod = data.get("carreraCod")  # Puede ser None
+        activo = data.get("activo", True)
+
+        print(f"👤 Creating user: {usuario}, rolId={rol_id}, facultad={facultad_cod}")
+
+        if not all([usuario, rol_id, facultad_cod]):
+            return jsonify({"error": "Campos obligatorios: usuario, rolId, facultadCod"}), 400
+
+        # Validar formato de email
+        import re
+        if not re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', usuario):
+            return jsonify({"error": "El usuario debe ser un email válido"}), 400
+
+        creado = crear_usuario(usuario, rol_id, facultad_cod, carrera_cod, bool(activo))
+        print(f"✅ User created successfully: {creado}")
+
+        return jsonify({"message": "Usuario creado exitosamente", "data": creado}), 201
+
+    except Exception as e:
+        print(f"❌ Error creating user: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.put("/usuarios/<int:user_id>")
+@require_login
+@require_role('admin')
+def api_actualizar_usuario(user_id):
+    """Actualizar usuario existente"""
+    try:
+        data = request.get_json(silent=True) or {}
+
+        # Verificar que el usuario existe
         conn = conectar()
         cur = conn.cursor()
+        cur.execute("""
+            SELECT u.Id, u.Usuario, u.Estado, r.Nombre as RolNombre
+            FROM Usuarios u
+            LEFT JOIN Rol r ON u.RolId = r.RolId
+            WHERE u.Id = ?
+        """, (user_id,))
 
-        # Verificar permisos de acceso
-        user_role = request.user.get('rolNombre', '').lower()
-        if user_role == 'admin':
-            # Admin puede ver cualquier usuario
-            query = """
-                SELECT u.Id, u.Usuario, u.Estado, u.RolId, r.Nombre as RolNombre,
-                       u.FacultadCod, f.Nombre as FacultadNombre,
-                       u.CarreraCod, c.Nombre as CarreraNombre
-                FROM Usuarios u
-                INNER JOIN Rol r ON u.RolId = r.RolId
-                INNER JOIN Facultad f ON u.FacultadCod = f.FacultadCod
-                LEFT JOIN Carrera c ON u.CarreraCod = c.CarreraCod
-                WHERE u.Id = ?
-            """
-            cur.execute(query, (user_id,))
-        else:
-            # Otros solo pueden ver usuarios de su facultad
-            query = """
-                SELECT u.Id, u.Usuario, u.Estado, u.RolId, r.Nombre as RolNombre,
-                       u.FacultadCod, f.Nombre as FacultadNombre,
-                       u.CarreraCod, c.Nombre as CarreraNombre
-                FROM Usuarios u
-                INNER JOIN Rol r ON u.RolId = r.RolId
-                INNER JOIN Facultad f ON u.FacultadCod = f.FacultadCod
-                LEFT JOIN Carrera c ON u.CarreraCod = c.CarreraCod
-                WHERE u.Id = ? AND u.FacultadCod = ?
-            """
-            cur.execute(query, (user_id, request.user.get('facultadCod')))
+        existing_user = cur.fetchone()
+        if not existing_user:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Usuario no encontrado"}), 404
 
-        row = cur.fetchone()
+        # Actualizar campos
+        updates = []
+        params = []
+
+        if 'usuario' in data and data['usuario'].strip():
+            updates.append("Usuario = ?")
+            params.append(data['usuario'].strip())
+
+        if 'rolId' in data:
+            updates.append("RolId = ?")
+            params.append(data['rolId'])
+
+        if 'activo' in data:
+            updates.append("Estado = ?")
+            params.append(bool(data['activo']))
+
+        if 'facultadCod' in data:
+            updates.append("FacultadCod = ?")
+            params.append(data['facultadCod'])
+
+        if 'carreraCod' in data:
+            updates.append("CarreraCod = ?")
+            params.append(data['carreraCod'])
+
+        if not updates:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "No hay campos para actualizar"}), 400
+
+        # Ejecutar actualización
+        params.append(user_id)
+        sql = f"UPDATE Usuarios SET {', '.join(updates)} WHERE Id = ?"
+        cur.execute(sql, params)
+        conn.commit()
+
+        # Obtener usuario actualizado
+        cur.execute("""
+            SELECT u.Id, u.Usuario, u.Estado, u.RolId, r.Nombre as RolNombre,
+                   u.FacultadCod, f.Nombre as FacultadNombre, 
+                   u.CarreraCod, c.Nombre as CarreraNombre
+            FROM Usuarios u
+            LEFT JOIN Rol r ON u.RolId = r.RolId
+            LEFT JOIN Facultad f ON u.FacultadCod = f.FacultadCod
+            LEFT JOIN Carrera c ON u.CarreraCod = c.CarreraCod
+            WHERE u.Id = ?
+        """, (user_id,))
+
+        updated_user = cur.fetchone()
         cur.close()
         conn.close()
 
-        if not row:
-            return jsonify({"error": "Usuario no encontrado"}), 404
+        print(f"✅ User {user_id} updated successfully")
 
-        from database import _row_to_user_dict
-        user_data = _row_to_user_dict(row)
-        return jsonify({"data": user_data}), 200
+        return jsonify({
+            "message": "Usuario actualizado exitosamente",
+            "data": {
+                "id": updated_user[0],
+                "usuario": updated_user[1],
+                "estado": bool(updated_user[2]),
+                "activo": bool(updated_user[2]),  # Alias para compatibilidad
+                "rolId": updated_user[3],
+                "rolNombre": updated_user[4],
+                "facultadCod": updated_user[5],
+                "facultadNombre": updated_user[6],
+                "carreraCod": updated_user[7],
+                "carreraNombre": updated_user[8]
+            }
+        }), 200
 
     except Exception as e:
-        return jsonify({"error": f"No se pudo obtener usuario: {e}"}), 500
+        print(f"❌ Error updating user {user_id}: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
-# ======================= VALIDACIÓN DE PERMISOS PARA MÓDULOS ===========================
-@app.get('/api/permissions/modules')
-@require_auth
-def get_module_permissions():
-    """Devuelve qué módulos puede acceder el usuario según su rol"""
-    user_role = request.user.get('rolNombre', '').lower()
-    facultad_cod = request.user.get('facultadCod')
-
-    # Definir permisos por rol
-    module_permissions = {
-        'admin': {
-            'academic-tracking': True,
-            'nee-control': True,
-            'tercera-matricula': True,
-            'control-parcial': True,
-            'control-final': True,
-            'top-promedios': True,
-            'consulta-estudiante': True,
-            'consulta-docente': True,
-            'distribucion-docente': True,
-            'reportes': True,
-            'config': True,
-            'admin-panel': True
-        },
-        'decano': {
-            'academic-tracking': True,
-            'nee-control': True,
-            'tercera-matricula': True,
-            'control-parcial': True,
-            'control-final': True,
-            'top-promedios': True,
-            'consulta-estudiante': True,
-            'consulta-docente': True,
-            'distribucion-docente': True,
-            'reportes': True,
-            'config': False,
-            'admin-panel': False
-        },
-        'coordinador': {
-            'academic-tracking': True,
-            'nee-control': True,
-            'tercera-matricula': True,
-            'control-parcial': True,
-            'control-final': True,
-            'top-promedios': True,
-            'consulta-estudiante': True,
-            'consulta-docente': True,
-            'distribucion-docente': False,
-            'reportes': True,
-            'config': False,
-            'admin-panel': False
-        },
-        'usuario': {
-            'academic-tracking': False,
-            'nee-control': False,
-            'tercera-matricula': False,
-            'control-parcial': False,
-            'control-final': False,
-            'top-promedios': True,
-            'consulta-estudiante': True,
-            'consulta-docente': True,
-            'distribucion-docente': False,
-            'reportes': False,
-            'config': False,
-            'admin-panel': False
-        }
-    }
-
-    permissions = module_permissions.get(user_role, module_permissions['usuario'])
-
-    return jsonify({
-        'permissions': permissions,
-        'userInfo': {
-            'role': user_role,
-            'facultad': facultad_cod,
-            'carrera': request.user.get('carreraCod'),
-            'usuario': request.user.get('usuario')
-        }
-    })
-
-
-# ======================= CORREO (MS Graph + OAuth2) ===========================
+# ======================= ENVÍO DE CORREOS ===========================
 msal_app = msal.ConfidentialClientApplication(
     CLIENT_ID,
     authority=f"https://login.microsoftonline.com/{TENANT_ID}",
@@ -726,10 +668,9 @@ def enviar_correo_graph(destinatarios, asunto, cuerpo):
 
 
 @app.post('/send-email')
-@require_auth
-@require_role(['admin', 'decano', 'coordinador'])
+@require_role('admin', 'decano', 'coordinador')
 def send_email():
-    """Envío de correos restringido por roles"""
+    """Envío de correos para roles autorizados"""
     data = request.get_json(silent=True) or {}
     to_list = data.get("to")
     subject = data.get("subject", "FACAF Notificación Académica")
@@ -770,7 +711,7 @@ def _parse_ug_result(obj: dict):
 
 @app.post("/auth/ug")
 def proxy_auth():
-    """Autenticación con validación mejorada"""
+    """Autenticación con UG"""
     data_json = request.get_json(silent=True) or {}
     usuario_in = (request.form.get('usuario') or data_json.get("usuario") or "").strip()
     clave = (request.form.get('clave') or data_json.get("clave") or "").strip()
@@ -832,62 +773,83 @@ def proxy_auth():
         }), 502
 
 
-@app.post("/admin/link")
-@require_auth
-@require_role(['admin'])
-def admin_link():
-    """Acceso al panel de administración solo para admin"""
-    return jsonify({"url": f"/Modules/panel-admin.html"})
-
-
-# ======================= AUTORIDAD CORREO =======================
-@app.get('/correo-autoridad')
-@require_auth
-def get_correo_autoridad_endpoint():
-    """Obtiene el correo de autoridad configurado"""
+# ======================= ENDPOINTS ADICIONALES ===========================
+@app.get('/api/health')
+def health_check():
+    """Estado de la API con información detallada"""
     try:
-        correo = obtener_correo_autoridad()
+        # Verificar conexión a BD
+        conn = conectar()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM Usuarios")
+        user_count = cur.fetchone()[0]
+        cur.close()
+        conn.close()
+        db_status = "OK"
+
+    except Exception as e:
+        print(f"❌ Database health check failed: {e}")
+        db_status = f"ERROR: {e}"
+        user_count = 0
+
+    return jsonify({
+        'status': 'OK',
+        'database': db_status,
+        'user_count': user_count,
+        'version': '1.0.0',
+    })
+
+
+@app.get("/debug/auth-info")
+def debug_auth_info():
+    """Endpoint para debugging de autenticación - SOLO PARA DESARROLLO"""
+    headers = dict(request.headers)
+    user_email = request.headers.get('X-User-Email')
+
+    user_data = None
+    if user_email:
+        user_data = obtener_usuario_por_usuario(user_email)
+
+    current_user = getattr(request, 'current_user', None)
+
+    return jsonify({
+        "request_headers": headers,
+        "user_email": user_email,
+        "user_data": user_data,
+        "current_user": current_user,
+        "endpoint": request.endpoint,
+        "method": request.method,
+        "url": request.url
+    })
+
+@app.post("/admin/panel")
+@require_login  # CRÍTICO: Agregar esta línea
+@require_role('admin')
+def admin_panel():
+    """Acceso al panel de administración"""
+    try:
+        user = request.current_user
+        user_email = user['usuario']
+        user_role = user['rolNombre']
+
+        print(f"✅ Admin panel access GRANTED - User: {user_email}, Role: {user_role}")
+
         return jsonify({
-            'correoAutoridad': correo
+            "url": "Modules/panel-admin.html",
+            "message": "Acceso autorizado al panel de administración",
+            "user": user_email,
+            "role": user_role
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@app.post('/correo-autoridad')
-@require_auth
-@require_role(['admin', 'coordinador'])
-def update_correo_autoridad_endpoint():
-    """Actualiza el correo de autoridad - solo admin y coordinador"""
-    try:
-        datos = request.get_json(silent=True) or {}
-        correo_autoridad = datos.get('correoAutoridad', '').strip()
-
-        if not correo_autoridad:
-            return jsonify({'error': 'correoAutoridad es requerido'}), 400
-
-        # Validación básica de formato email
-        import re
-        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-        if not re.match(email_pattern, correo_autoridad):
-            return jsonify({'error': 'Formato de correo inválido'}), 400
-
-        success = actualizar_correo_autoridad(correo_autoridad)
-
-        if success:
-            return jsonify({
-                'message': 'Correo de autoridad actualizado correctamente',
-                'correoAutoridad': correo_autoridad
-            })
-        else:
-            return jsonify({'error': 'Error al actualizar correo de autoridad'}), 500
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
+        print(f"❌ Error in admin_panel: {e}")
+        return jsonify({"error": "Error interno del servidor"}), 500
 
 # ======================= MAIN ===========================
 if __name__ == '__main__':
     port = int(os.getenv("PORT", "5000"))
     debug = os.getenv("FLASK_DEBUG", "1") == "1"
+
+    print(f"🚀 Iniciando servidor FACAF en puerto {port}")
+    print(f"🐛 Modo debug: {debug}")
+
     app.run(host='0.0.0.0', port=port, debug=debug)

@@ -1,7 +1,7 @@
-// Modules/admin.js
+// panel-admin.js
 import { loadData, saveData } from '../indexeddb-storage.js';
 
-const API_BASE = 'http://178.128.10.70:5000';
+const API_BASE = 'http://26.127.175.34:5000';
 const DEBUG = false;
 
 // ====== DOM ======
@@ -81,6 +81,9 @@ function openModal({ title = 'Aviso', message = '', showCancel = false, acceptTe
 function modalInfo(message, title = 'Aviso') { return openModal({ title, message, showCancel: false, acceptText: 'Entendido', icon: 'fa-circle-info' }); }
 function modalError(message, title = 'Error') { return openModal({ title, message, showCancel: false, acceptText: 'Cerrar', icon: 'fa-triangle-exclamation' }); }
 function modalConfirm(message, title = 'Confirmar', acceptText = 'Sí', cancelText = 'No') { return openModal({ title, message, showCancel: true, acceptText, cancelText, icon: 'fa-circle-question' }); }
+function normalizeRole(role) {
+  return String(role || '').trim().toLowerCase();
+}
 
 // ====== Error banner ======
 const errorBannerId = 'admin-error-banner';
@@ -135,30 +138,91 @@ function statusDot(on) { return `<span class="status-dot ${on ? 'on' : 'off'}" t
 
 function mapUser(x) {
   if (!x || typeof x !== 'object') return null;
+  
   const row = x.data ?? x;
+  
   return {
-    id: Number(row.id),
-    usuario: norm(row.usuario),
-    rol: norm(row.rol || 'usuario').toLowerCase(),
-    activo: !!asBool(row.activo),
+    id: Number(row.id || 0),
+    usuario: String(row.usuario || '').trim(),
+    rol: normalizeRole(row.rolNombre || row.rol || 'operador'),
+    activo: Boolean(row.estado ?? row.activo ?? true),
+    facultad: String(row.facultadNombre || row.facultad || '').trim(),
+    carrera: String(row.carreraNombre || row.carrera || '').trim()
   };
 }
 
-function getRoleFromUserData(obj) {
+async function loadAvailableRoles() {
   try {
-    const nested = obj?.usuario?.rol ?? obj?.rol;
-    return String(nested ?? '').trim().toLowerCase();
-  } catch { return ''; }
+    const response = await makeAuthenticatedRequest(`${API_BASE}/api/roles`);
+    if (!response.ok) {
+      console.warn('Error cargando roles, usando valores por defecto');
+      return [
+        { id: 1, nombre: 'admin' },
+        { id: 2, nombre: 'decano' },
+        { id: 3, nombre: 'coordinador' },
+        { id: 4, nombre: 'operador' }
+      ];
+    }
+    
+    const roles = await response.json();
+    return Array.isArray(roles) ? roles : [];
+  } catch (error) {
+    console.warn('Error cargando roles:', error);
+    return [
+      { id: 1, nombre: 'admin' },
+      { id: 2, nombre: 'decano' },
+      { id: 3, nombre: 'coordinador' },
+      { id: 4, nombre: 'operador' }
+    ];
+  }
 }
-function getUsernameFromUserData(obj) {
+
+async function populateRoleSelect() {
+  if (!rolSelect) return;
+  
   try {
-    const a = obj?.usuario;
-    if (a && typeof a === 'object' && typeof a.usuario === 'string') return a.usuario.trim();
-    if (typeof a === 'string' && a.trim()) return a.trim();
-    if (typeof obj?.email === 'string') return obj.email.trim();
-    return '';
-  } catch { return ''; }
+    const roles = await loadAvailableRoles();
+    rolSelect.innerHTML = '';
+    
+    roles.forEach(role => {
+      const option = document.createElement('option');
+      option.value = role.nombre.toLowerCase();
+      option.textContent = role.nombre.charAt(0).toUpperCase() + role.nombre.slice(1).toLowerCase();
+      rolSelect.appendChild(option);
+    });
+    
+    // Establecer valor por defecto
+    rolSelect.value = 'operador';
+  } catch (error) {
+    console.error('Error poblando select de roles:', error);
+    // Fallback manual
+    rolSelect.innerHTML = `
+      <option value="admin">Administrador</option>
+      <option value="decano">Decano</option>
+      <option value="coordinador">Coordinador</option>
+      <option value="operador" selected>Operador</option>
+    `;
+  }
 }
+
+async function makeAuthenticatedRequest(url, options = {}) {
+  const userData = await loadData('userData');
+  if (!userData || !userData.usuario) {
+    throw new Error('No hay sesión válida');
+  }
+
+  const headers = {
+    'X-User-Email': userData.usuario,
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  };
+
+  return fetch(url, {
+    ...options,
+    headers
+  });
+}
+
 
 // ====== Render ======
 function rowTemplate(u) {
@@ -194,7 +258,7 @@ function renderTable(list, { append = false } = {}) {
 // ====== API helpers ======
 async function apiHealth() {
   try {
-    const r = await fetch(`${API_BASE}/health`);
+    const r = await fetch(`${API_BASE}/api/health`); 
     return r.ok;
   } catch {
     return false;
@@ -215,60 +279,117 @@ async function safeJson(resp) {
 }
 
 // ====== API ======
-async function apiListUsers({ q = '', rol = '', activo = '', page = 0, limit = PAGE_SIZE, sort_by = 'id', sort_dir = 'desc' } = {}) {
+async function apiListUsers({ q = '', rol = '', page = 0, limit = PAGE_SIZE } = {}) {
   const params = new URLSearchParams();
   if (q) params.set('q', q);
-  if (rol) params.set('rol', rol);
-  if (activo !== '') params.set('activo', activo); // '1' | '0' | ''
+  if (rol) params.set('rolId', rol); // Usar rolId si necesitas filtrar por rol
   params.set('page', String(page));
   params.set('limit', String(limit));
-  params.set('sort_by', sort_by);
-  params.set('sort_dir', sort_dir);
 
   const url = `${API_BASE}/usuarios?${params.toString()}`;
   if (DEBUG) console.log('[GET]', url);
 
-  const resp = await fetch(url);
+  const resp = await makeAuthenticatedRequest(url);
   const body = await safeJson(resp);
+  
   if (!resp.ok) {
     if (DEBUG) console.error('GET /usuarios FAILED', resp.status, body);
-    throw new Error(`/usuarios respondió ${resp.status}`);
+    throw new Error(body?.error || `Error ${resp.status}: ${body?.message || 'Error desconocido'}`);
   }
 
-  const rowsRaw = pickRowsFromAnyShape(body);
-  const rows = rowsRaw.map(mapUser).filter(Boolean);
-  const total = Number(body?.total ?? rows.length);
+  // Adaptar la respuesta según la estructura que devuelve tu backend
+  let rows = [];
+  let total = 0;
 
-  if (DEBUG) console.log('GET /usuarios ->', { count: rows.length, total, sample: rows[0] });
-  return { rows, total };
+  if (Array.isArray(body)) {
+    rows = body;
+    total = body.length;
+  } else if (body.data && Array.isArray(body.data)) {
+    rows = body.data;
+    total = body.total || body.data.length;
+  } else if (body.rows && Array.isArray(body.rows)) {
+    rows = body.rows;
+    total = body.total || body.rows.length;
+  }
+
+  const mappedRows = rows.map(mapUser).filter(Boolean);
+
+  if (DEBUG) console.log('GET /usuarios ->', { count: mappedRows.length, total, sample: mappedRows[0] });
+  return { rows: mappedRows, total };
 }
 
-async function apiCreateUser({ usuario, rol = 'usuario', activo = true }) {
-  const payload = { usuario, rol, activo: !!activo };
+async function apiCreateUser({ usuario, rol = 'operador', activo = true }) {
+  // Obtener rolId desde el backend primero
+  const rolesResponse = await makeAuthenticatedRequest(`${API_BASE}/api/roles`);
+  if (!rolesResponse.ok) {
+    throw new Error('Error obteniendo lista de roles');
+  }
+  const roles = await rolesResponse.json();
+  const roleObj = roles.find(r => normalizeRole(r.nombre) === normalizeRole(rol));
+  
+  if (!roleObj) {
+    throw new Error(`Rol "${rol}" no encontrado`);
+  }
+
+  // También necesitamos facultad y carrera - usar las del usuario actual
+  const userData = await loadData('userData');
+  
+  const payload = { 
+    usuario, 
+    rolId: roleObj.id,
+    facultadCod: userData.facultadCod || 'DEFAULT',
+    carreraCod: userData.carreraCod,
+    activo: !!activo 
+  };
+  
   if (DEBUG) console.log('[POST] /usuarios', payload);
-  const resp = await fetch(`${API_BASE}/usuarios`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  
+  const resp = await makeAuthenticatedRequest(`${API_BASE}/usuarios`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
+  
   const out = await safeJson(resp);
   if (!resp.ok) {
     if (DEBUG) console.error('POST /usuarios FAILED', resp.status, out);
     throw new Error(out?.error || 'No se pudo crear usuario');
   }
+  
   const u = mapUser(out?.data);
   if (DEBUG) console.log('POST /usuarios ->', u);
   return u;
 }
 
 async function apiUpdateUser(id, { usuario, rol, activo }) {
+  // Obtener rolId desde el backend si se está actualizando el rol
+  let rolId = undefined;
+  if (rol !== undefined) {
+    try {
+      const rolesResponse = await makeAuthenticatedRequest(`${API_BASE}/api/roles`);
+      if (rolesResponse.ok) {
+        const roles = await rolesResponse.json();
+        const roleObj = roles.find(r => normalizeRole(r.nombre) === normalizeRole(rol));
+        if (roleObj) {
+          rolId = roleObj.id;
+        }
+      }
+    } catch (error) {
+      console.warn('Error obteniendo roles para actualización:', error);
+    }
+  }
+
   const body = {};
   if (usuario !== undefined) body.usuario = usuario;
-  if (rol      !== undefined) body.rol     = rol;
-  if (activo   !== undefined) body.activo  = !!activo;
+  if (rolId !== undefined) body.rolId = rolId;
+  if (activo !== undefined) body.activo = !!activo;
 
   if (DEBUG) console.log('[PUT] /usuarios/' + id, body);
-  const resp = await fetch(`${API_BASE}/usuarios/${id}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  
+  const resp = await makeAuthenticatedRequest(`${API_BASE}/usuarios/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
   });
+  
   const out = await safeJson(resp);
   if (!resp.ok) {
     if (DEBUG) console.error('PUT /usuarios FAILED', resp.status, out);
@@ -282,15 +403,16 @@ async function apiUpdateUser(id, { usuario, rol, activo }) {
 // ====== Stats desde el backend ======
 async function refreshStatsFromServer() {
   try {
-    const t = await apiListUsers({ limit: 1, page: 0, sort_by: 'id', sort_dir: 'desc' });
-    if (statTotal) statTotal.textContent = t.total;
-
-    const a = await apiListUsers({ limit: 1, page: 0, rol: 'admin' });
-    if (statAdmins) statAdmins.textContent = a.total;
-
-    const ac = await apiListUsers({ limit: 1, page: 0, activo: '1' });
-    if (statActivos) statActivos.textContent = ac.total;
+    // Obtener todos los usuarios de una vez para calcular stats localmente
+    const allUsers = await apiListUsers({ limit: 1000, page: 0 });
+    const users = allUsers.rows;
+    
+    if (statTotal) statTotal.textContent = users.length;
+    if (statAdmins) statAdmins.textContent = users.filter(u => u.rol === 'admin').length;
+    if (statActivos) statActivos.textContent = users.filter(u => u.activo).length;
+    
   } catch (e) {
+    console.warn('Error getting stats from server, using cache:', e);
     const list = USERS_CACHE;
     if (statTotal)  statTotal.textContent  = list.length;
     if (statAdmins) statAdmins.textContent = list.filter(u => u.rol === 'admin').length;
@@ -314,16 +436,25 @@ async function refreshUsers({ reset = true } = {}) {
 
   showOverlay(`Cargando usuarios...`);
   try {
+    // Llamar API sin filtro de activo
     let { rows, total } = await apiListUsers({
-      q, rol, activo,
-      page, limit: PAGE_SIZE,
-      sort_by: sortBy, sort_dir: sortDir,
+      q, 
+      rol: rol || '', // Solo enviar rol si no está vacío
+      page, 
+      limit: PAGE_SIZE
     });
+
+    // Aplicar filtro de activo localmente si es necesario
+    if (activo !== '') {
+      const isActiveFilter = activo === '1';
+      rows = rows.filter(user => user.activo === isActiveFilter);
+      total = rows.length; // Recalcular total después del filtro local
+    }
 
     // Si vino vacío, reintenta sin filtros con límite alto
     if (rows.length === 0 && page === 0) {
-      if (DEBUG) console.warn('Lista vacía. Reintentando sin filtros (limit=1000)...');
-      const retry = await apiListUsers({ page: 0, limit: 1000, sort_by: 'id', sort_dir: 'desc' });
+      if (DEBUG) console.warn('Lista vacía. Reintentando sin filtros...');
+      const retry = await apiListUsers({ page: 0, limit: 1000 });
       if (retry.rows.length > 0) {
         rows = retry.rows;
         total = retry.total;
@@ -358,7 +489,7 @@ async function refreshUsers({ reset = true } = {}) {
     }
   } catch (e) {
     console.warn('Fallo al listar en backend. Usando cache local si existe.', e);
-    showErrorBanner(`No se pudo obtener la lista de usuarios desde el servidor. Revisa la consola (F12 → Network). Error: ${e.message}`);
+    showErrorBanner(`No se pudo obtener la lista de usuarios desde el servidor. Error: ${e.message}`);
     await modalError(`No se pudo obtener la lista de usuarios.\n\nDetalle: ${e.message}`);
     const cached = await loadData(CACHE_KEY);
     if (Array.isArray(cached)) {
@@ -523,78 +654,118 @@ loadMoreBtn?.addEventListener('click', () => loadMore());
 
 // ====== Validación de rol al entrar ======
 async function validateRoleOnEntry() {
-  // 1) Cargar datos de sesión
-  const userData = (await loadData('userData')) || {};
-  const storedRole = getRoleFromUserData(userData);
-  const username   = getUsernameFromUserData(userData);
-
-  if (!username) {
-    await modalError('No hay sesión válida. Inicia sesión nuevamente.');
-    window.location.href = '../login.html';
-    return false;
-  }
-
   try {
-    showOverlay('Validando rol de usuario...');
-    // 2) Consultar rol real en la BD
-    const { rows } = await apiListUsers({ q: username, limit: 1, page: 0 });
-    const match = rows.find(r => (r.usuario || '').toLowerCase() === username.toLowerCase()) || rows[0];
-
-    if (!match) {
-      await modalError('Usuario no registrado localmente. Contacta al administrador.');
-      window.location.href = '../index.html';
+    showOverlay('Validando sesión y permisos...');
+    
+    // 1) Cargar datos de sesión
+    const userData = await loadData('userData');
+    if (!userData || !userData.usuario) {
+      await modalError('No hay sesión válida. Inicia sesión nuevamente.');
+      window.location.href = '../login.html';
       return false;
     }
 
-    const backendRole = (match.rol || '').toLowerCase();
+    const username = userData.usuario;
+    const storedRole = normalizeRole(userData.rol);
+    
+    console.log('Validando usuario:', { username, storedRole, userData });
 
-    // 3) Si roles no coinciden => modal y regreso al index (actualizando sesión)
-    if (backendRole !== storedRole) {
-      // Actualiza userData con el rol real antes de salir
-      if (userData?.usuario && typeof userData.usuario === 'object') {
-        userData.usuario.rol = backendRole;
-      } else {
-        userData.rol = backendRole;
+    // 2) Verificar permisos desde el endpoint específico
+    const permissionsResponse = await fetch(`${API_BASE}/user/permissions`, {
+      headers: {
+        'X-User-Email': username,
+        'Content-Type': 'application/json'
       }
+    });
+
+    if (!permissionsResponse.ok) {
+      const errorData = await permissionsResponse.json().catch(() => ({}));
+      console.error('Error obteniendo permisos:', errorData);
+      
+      if (permissionsResponse.status === 401) {
+        await modalError('Sesión expirada. Inicia sesión nuevamente.');
+        window.location.href = '../login.html';
+        return false;
+      }
+      
+      await modalError('Error verificando permisos en el servidor.');
+      window.location.href = '../index.html';
+      return false;
+    }
+
+    const permissionsData = await permissionsResponse.json();
+    const serverRole = normalizeRole(permissionsData.role);
+    const permissions = permissionsData.permissions || {};
+    
+    console.log('Permisos del servidor:', { serverRole, permissions });
+
+    // 3) Verificar si tiene permisos para acceder al panel de admin
+    if (!permissions.can_access_admin_panel) {
+      await modalError('No tienes permisos para acceder al panel de administración.');
+      window.location.href = '../index.html';
+      return false;
+    }
+
+    // 4) Verificar que el rol sea admin
+    if (serverRole !== 'admin') {
+      await modalError('Se requieren permisos de administrador para acceder a este módulo.');
+      window.location.href = '../index.html';
+      return false;
+    }
+
+    // 5) Actualizar datos locales si hay discrepancia
+    if (storedRole !== serverRole) {
+      console.log(`Actualizando rol local: ${storedRole} -> ${serverRole}`);
+      userData.rol = serverRole;
       await saveData('userData', userData);
-
-      await modalError('SU ROL NO CONCUERDA AL ASIGNADO. Será redirigido al menú.', 'Rol inconsistente');
-      window.location.href = '../index.html';
-      return false;
     }
 
-    // 4) Si no es admin => no tiene permiso
-    if (backendRole !== 'admin') {
-      await modalInfo('NO TIENE PERMISOS PARA ENTRAR A ESTE MODULO.');
-      window.location.href = '../index.html';
-      return false;
-    }
-
-    // OK
     hideOverlay();
     return true;
-  } catch (e) {
+    
+  } catch (error) {
+    console.error('Error en validateRoleOnEntry:', error);
     hideOverlay();
-    await modalError(`No se pudo validar el rol en el servidor.\nDetalle: ${e.message}`);
+    await modalError(`Error validando permisos: ${error.message}`);
     window.location.href = '../index.html';
     return false;
   }
 }
 
 // ====== Init ======
-(async function init() {
-  // 0) Validar rol en el backend ANTES de mostrar cualquier cosa
-  const valid = await validateRoleOnEntry();
-  if (!valid) return;
+async function init() {
+  try {
+    // 0) Validar rol en el backend ANTES de mostrar cualquier cosa
+    const valid = await validateRoleOnEntry();
+    if (!valid) return;
 
-  const ok = await apiHealth();
-  if (!ok) {
-    showErrorBanner('No hay conexión con el backend (GET /health falló). Verifica que el servidor Flask esté encendido y accesible.');
+    // 1) Poblar select de roles
+    await populateRoleSelect();
+
+    // 2) Verificar salud del API
+    const ok = await apiHealth();
+    if (!ok) {
+      showErrorBanner('No hay conexión con el backend. Verifica que el servidor esté funcionando.');
+    }
+
+    // 3) Configurar checkbox de activo
+    if (activoCheck && activoLabel) {
+      activoLabel.textContent = activoCheck.checked ? 'Sí' : 'No';
+      activoCheck.addEventListener('change', () => {
+        activoLabel.textContent = activoCheck.checked ? 'Sí' : 'No';
+      });
+    }
+
+    // 4) Cargar usuarios
+    await refreshUsers({ reset: true });
+    
+  } catch (error) {
+    console.error('Error en inicialización:', error);
+    await modalError(`Error inicializando el panel: ${error.message}`);
   }
+}
 
-  if (activoCheck && activoLabel) {
-    activoLabel.textContent = activoCheck.checked ? 'Sí' : 'No';
-  }
-
-  await refreshUsers({ reset: true });
+// Reemplazar la función init original
+(async function() {
+  await init();
 })();
