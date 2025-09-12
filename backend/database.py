@@ -550,3 +550,51 @@ def obtener_carreras_por_facultad(facultad_cod):
     finally:
         cur.close()
         conn.close()
+
+
+# ======================= AUTORIDAD CORREO =======================
+def obtener_correo_autoridad():
+    """Obtiene el correo de autoridad configurado"""
+    conn = conectar()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT TOP 1 DecanoCorreo FROM AutoridadCorreo ORDER BY Id DESC")
+        row = cur.fetchone()
+        return row[0] if row else "alvaro.espinozabu@ug.edu.ec"  # Valor por defecto
+    finally:
+        cur.close()
+        conn.close()
+
+
+def actualizar_correo_autoridad(correo_autoridad):
+    """Actualiza o inserta el correo de autoridad"""
+    conn = conectar()
+    try:
+        cur = conn.cursor()
+
+        # Verificar si existe algún registro
+        cur.execute("SELECT COUNT(*) FROM AutoridadCorreo")
+        existe = cur.fetchone()[0] > 0
+
+        if existe:
+            # Actualizar el más reciente
+            cur.execute("""
+                UPDATE AutoridadCorreo 
+                SET DecanoCorreo = ? 
+                WHERE Id = (SELECT TOP 1 Id FROM AutoridadCorreo ORDER BY Id DESC)
+            """, (correo_autoridad,))
+        else:
+            # Insertar nuevo registro
+            cur.execute("""
+                INSERT INTO AutoridadCorreo (DecanoCorreo) 
+                VALUES (?)
+            """, (correo_autoridad,))
+
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error actualizando correo autoridad: {e}")
+        return False
+    finally:
+        cur.close()
+        conn.close()

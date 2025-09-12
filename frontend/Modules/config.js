@@ -1,15 +1,44 @@
 // config.js
 import { saveData, loadData } from '../indexeddb-storage.js';
 
-const API_BASE = 'http://178.128.10.70:5000';
+const API_BASE = 'http://26.127.175.34:5000';
 
 const norm = (v) => (v ?? '').toString().trim();
 function normalizeFileName(fileName) {
   return fileName.replace(/\W+/g, "_");
 }
 
+function getUserData() {
+  try {
+    const userData = localStorage.getItem('userData');
+    return userData ? JSON.parse(userData) : null;
+  } catch (error) {
+    console.error('Error al parsear userData:', error);
+    return null;
+  }
+}
+
+// Obtener facultadCod del usuario actual
+function getCurrentFacultadCod() {
+  const user = getUserData();
+  return user?.facultadCod || null;
+}
+
+// Obtener headers de autenticación
+function getAuthHeaders() {
+  const user = getUserData();
+  if (!user?.usuario) {
+    throw new Error('Usuario no autenticado');
+  }
+  
+  return {
+    'Content-Type': 'application/json',
+    'X-User-Email': user.usuario
+  };
+}
+
 /* ===============================
-   LISTAR ARCHIVOS PROCESADOS (desde backend)
+   LISTAR ARCHIVOS PROCESADOS (filtrado por facultad) - CORREGIDO
 ================================= */
 async function fetchAndRenderProcessedFiles() {
   const processedFilesListDiv = document.getElementById('processed-files-list');
@@ -17,10 +46,31 @@ async function fetchAndRenderProcessedFiles() {
   processedFilesListDiv.innerHTML = '';
 
   try {
-    const res = await fetch(`${API_BASE}/files`);
-    const files = await res.json();
+    const user = getUserData();
+    if (!user?.usuario) {
+      throw new Error('Usuario no autenticado');
+    }
 
-    if (Array.isArray(files) && files.length > 0) {
+    // ✅ VALIDAR FACULTAD
+    if (!user?.facultadCod) {
+      throw new Error('Usuario sin facultad asignada');
+    }
+
+    const headers = getAuthHeaders();
+    delete headers['Content-Type']; // Para GET request
+    
+    // ✅ ENVIAR FACULTAD COMO QUERY PARAM
+    const url = `${API_BASE}/files?facultadCod=${encodeURIComponent(user.facultadCod)}`;
+    const res = await fetch(url, { headers });
+    
+    if (!res.ok) {
+      throw new Error(`Error ${res.status}: ${res.statusText}`);
+    }
+    
+    const data = await res.json();
+    const files = Array.isArray(data) ? data : data.archivos || [];
+
+    if (files.length > 0) {
       const title = document.createElement('h3');
       title.textContent = 'Archivos Procesados:';
       processedFilesListDiv.appendChild(title);
@@ -38,7 +88,12 @@ async function fetchAndRenderProcessedFiles() {
         fileDiv.style.marginBottom = '8px';
 
         fileDiv.innerHTML = `
-          <span class="file-name" title="${file.nombre}">${file.nombre}</span>
+          <div>
+            <span class="file-name" title="${file.nombre}">${file.nombre}</span>
+            <small style="display: block; color: #666; margin-top: 2px;">
+              ${file.facultad || file.facultadCod || 'Sin facultad'} - ${file.fecha || 'Sin fecha'}
+            </small>
+          </div>
           <div class="file-actions">
             <button class="file-action-btn" title="Ver columnas" onclick="viewFileDetails('${file.nombre}')">
               <i class="fas fa-eye"></i>
@@ -51,11 +106,37 @@ async function fetchAndRenderProcessedFiles() {
         processedFilesListDiv.appendChild(fileDiv);
       });
     } else {
-      processedFilesListDiv.textContent = 'No hay archivos en el servidor.';
+      processedFilesListDiv.innerHTML = `
+        <div style="text-align: center; color: #666; padding: 20px;">
+          <i class="fas fa-folder-open" style="font-size: 2em; margin-bottom: 10px; display: block;"></i>
+          No hay archivos en el servidor para la facultad: ${user.facultadCod}
+        </div>
+      `;
     }
   } catch (error) {
     console.error('❌ Error obteniendo archivos procesados:', error);
-    processedFilesListDiv.textContent = 'No fue posible obtener el listado.';
+    
+    let errorMessage = 'Error de conexión. Intenta nuevamente.';
+    
+    if (error.message.includes('Usuario no autenticado')) {
+      errorMessage = 'Error de autenticación. Inicia sesión nuevamente.';
+      setTimeout(() => {
+        window.location.href = '../index.html';
+      }, 2000);
+    } else if (error.message.includes('sin facultad')) {
+      errorMessage = 'Tu usuario no tiene una facultad asignada. Contacta al administrador.';
+    } else if (error.message.includes('403')) {
+      errorMessage = 'No tienes permisos para ver estos archivos.';
+    } else if (error.message.includes('500')) {
+      errorMessage = 'Error del servidor. Intenta nuevamente más tarde.';
+    }
+    
+    processedFilesListDiv.innerHTML = `
+      <div style="text-align: center; color: #d33; padding: 20px;">
+        <i class="fas fa-exclamation-triangle" style="font-size: 2em; margin-bottom: 10px; display: block;"></i>
+        ${errorMessage}
+      </div>
+    `;
   }
 }
 
@@ -111,7 +192,7 @@ window.viewFileDetails = async function (fileName) {
 };
 
 /* ===============================
-   ELIMINAR ARCHIVO por nombre (en backend) y refrescar
+   ELIMINAR ARCHIVO por nombre (validado por facultad) - CORREGIDO
 ================================= */
 window.removeFile = async function (btn, filename) {
   if (!filename || typeof filename !== "string") {
@@ -120,27 +201,83 @@ window.removeFile = async function (btn, filename) {
   if (!confirm(`¿Deseas eliminar el archivo "${filename}"?`)) return;
 
   try {
-    const response = await fetch(`${API_BASE}/delete/by-name/${encodeURIComponent(filename)}`, {
-      method: "DELETE"
-    });
-    const result = await response.json();
-
-    if (response.ok) {
-      btn.closest('.processed-file')?.remove();
-      alert("✅ Archivo eliminado");
-      await fetchAndRenderProcessedFiles();
-    } else {
-      alert("❌ Error al eliminar: " + (result.error || "desconocido"));
+    const user = getUserData();
+    if (!user?.usuario) {
+      throw new Error('Usuario no autenticado');
     }
+
+    // ✅ VALIDAR FACULTAD
+    if (!user?.facultadCod) {
+      throw new Error('Usuario sin facultad asignada');
+    }
+
+    const headers = getAuthHeaders();
+    delete headers['Content-Type']; // Para DELETE request
+    
+    // ✅ ENVIAR FACULTAD COMO QUERY PARAM
+    const url = `${API_BASE}/delete/by-name/${encodeURIComponent(filename)}?facultadCod=${encodeURIComponent(user.facultadCod)}`;
+    const response = await fetch(url, {
+      method: "DELETE",
+      headers
+    });
+    
+    if (!response.ok) {
+      let errorMessage = `Error ${response.status}`;
+      try {
+        const result = await response.json();
+        errorMessage = result.error || errorMessage;
+      } catch {
+        errorMessage = `Error ${response.status}: ${response.statusText}`;
+      }
+      throw new Error(errorMessage);
+    }
+    
+    const result = await response.json();
+    btn.closest('.processed-file')?.remove();
+    
+    await Swal.fire({
+      icon: 'success',
+      title: 'Archivo eliminado',
+      text: `✅ El archivo "${filename}" ha sido eliminado correctamente.`,
+      confirmButtonColor: '#3085d6',
+      timer: 3000
+    });
+    
+    await fetchAndRenderProcessedFiles();
+    
   } catch (err) {
-    console.error("❌ Error de red:", err);
-    alert("No se pudo eliminar.");
+    console.error("❌ Error eliminando archivo:", err);
+    
+    let errorMessage = "No se pudo eliminar el archivo.";
+    
+    if (err.message.includes('Usuario no autenticado')) {
+      errorMessage = "Sesión expirada. Inicia sesión nuevamente.";
+      setTimeout(() => {
+        window.location.href = '../index.html';
+      }, 2000);
+    } else if (err.message.includes('sin facultad')) {
+      errorMessage = "Tu usuario no tiene una facultad asignada.";
+    } else if (err.message.includes('permisos')) {
+      errorMessage = "No tienes permisos para eliminar este archivo.";
+    } else if (err.message.includes('404')) {
+      errorMessage = "El archivo no existe o ya fue eliminado.";
+    } else if (err.message.includes('NetworkError') || err.message.includes('fetch')) {
+      errorMessage = "Error de conexión. Verifica tu red.";
+    } else {
+      errorMessage += ` Detalle: ${err.message}`;
+    }
+
+    await Swal.fire({
+      icon: 'error',
+      title: 'Error al eliminar',
+      text: errorMessage,
+      confirmButtonColor: '#d33'
+    });
   }
 };
 
 /* ===============================
    SOLO ACTUALIZAR LA VISTA POR PERIODO (NO DESCARGA)
-   Guarda academicTrackingData_REPORTE_POR_SEMESTRE en IndexedDB
 ================================= */
 async function updatePeriodViewFromLocal() {
   const selectedPeriod = document.getElementById("period-select")?.value;
@@ -185,7 +322,7 @@ async function updatePeriodViewFromLocal() {
 }
 
 /* ===============================
-   SUBIR ARCHIVOS (si hay) o SOLO actualizar por PERIODO (si no hay)
+   SUBIR ARCHIVOS (con autenticación por facultad) - CORREGIDO
 ================================= */
 async function processExcelFile() {
   const fileInput = document.getElementById('excel-file-input');
@@ -199,34 +336,59 @@ async function processExcelFile() {
     return;
   }
 
-  // Si hay archivos, sube al backend y luego sincroniza todo
+  // Si hay archivos, sube al backend con autenticación
   try {
     if (loadingOverlay) loadingOverlay.style.display = 'flex';
     console.log("📤 Iniciando procesamiento de archivos...");
+
+    const user = getUserData();
+    if (!user?.usuario) {
+      throw new Error('Usuario no autenticado');
+    }
+
+    // ✅ VALIDAR FACULTAD
+    if (!user?.facultadCod) {
+      throw new Error('Usuario sin facultad asignada');
+    }
+
+    console.log(`👤 Usuario: ${user.usuario}, Facultad: ${user.facultadCod}`);
 
     for (let i = 0; i < files.length; i++) {
       console.log(`➡️ Subiendo archivo ${files[i].name}`);
 
       const formData = new FormData();
       formData.append("file", files[i]);
+      // ✅ AGREGAR FACULTAD
+      formData.append("facultadCod", user.facultadCod);
 
       const response = await fetch(`${API_BASE}/upload`, {
         method: 'POST',
+        headers: {
+          'X-User-Email': user.usuario
+          // ✅ NO incluir Content-Type para FormData
+        },
         body: formData
       });
 
       console.log(`📬 Respuesta recibida (${response.status})`);
+      
+      if (!response.ok) {
+        let errorMessage = `Error ${response.status}`;
+        try {
+          const errorResult = await response.json();
+          errorMessage = errorResult.error || errorMessage;
+        } catch {
+          errorMessage = `Error ${response.status}: ${response.statusText}`;
+        }
+        throw new Error(errorMessage);
+      }
+      
       const result = await response.json();
       console.log("📦 Resultado:", result);
 
       if (uploadStatus) {
-        if (response.ok) {
-          uploadStatus.textContent = result.message || 'Archivo subido.';
-          uploadStatus.style.color = 'green';
-        } else {
-          uploadStatus.textContent = result.error || 'Error al subir el archivo';
-          uploadStatus.style.color = 'red';
-        }
+        uploadStatus.textContent = result.message || 'Archivo subido.';
+        uploadStatus.style.color = 'green';
       }
     }
 
@@ -252,10 +414,34 @@ async function processExcelFile() {
     console.error('❌ Error al procesar archivo(s):', error);
     if (loadingOverlay) loadingOverlay.style.display = 'none';
 
+    let errorMessage = '❌ Ocurrió un error al procesar los archivos.';
+    
+    // ✅ MENSAJES DE ERROR MÁS ESPECÍFICOS
+    if (error.message.includes('Usuario no autenticado')) {
+      errorMessage = '❌ Sesión expirada. Inicia sesión nuevamente.';
+      setTimeout(() => {
+        window.location.href = '../index.html';
+      }, 2000);
+    } else if (error.message.includes('sin facultad')) {
+      errorMessage = '❌ Tu usuario no tiene una facultad asignada. Contacta al administrador.';
+    } else if (error.message.includes('FacultadCod')) {
+      errorMessage = '❌ Error con la facultad asignada. Verifica tu configuración.';
+    } else if (error.message.includes('permisos')) {
+      errorMessage = '❌ No tienes permisos para subir archivos a esta facultad.';
+    } else if (error.message.includes('400')) {
+      errorMessage = '❌ Error en el archivo o datos enviados. Verifica el formato.';
+    } else if (error.message.includes('500')) {
+      errorMessage = '❌ Error del servidor. Intenta nuevamente.';
+    } else if (error.message.includes('NetworkError') || error.message.includes('fetch')) {
+      errorMessage = '❌ Error de conexión. Verifica tu red e intenta nuevamente.';
+    } else {
+      errorMessage += ` Detalle: ${error.message}`;
+    }
+
     await Swal.fire({
       icon: 'error',
       title: 'Error',
-      text: '❌ Ocurrió un error al procesar los archivos.',
+      text: errorMessage,
       confirmButtonColor: '#d33'
     });
   }
@@ -266,62 +452,67 @@ async function processExcelFile() {
 }
 
 /* ===============================
-   SINCRONIZACIÓN COMPLETA (descarga TODO del backend)
-   - Guarda datasets por archivo en IndexedDB
-   - Para el TOTAL, también guarda academicTrackingData_REPORTE_POR_SEMESTRE del período seleccionado
+   SINCRONIZACIÓN COMPLETA (con autenticación)
 ================================= */
 async function syncFilesFromBackendToIndexedDB() {
   const periodSelect = document.getElementById("period-select");
-  const selectedPeriod =
-    periodSelect?.value || localStorage.getItem('selectedPeriod') || '';
+  const selectedPeriod = periodSelect?.value || localStorage.getItem('selectedPeriod') || '';
 
-  const res = await fetch(`${API_BASE}/files`);
-  const files = await res.json();
-
-  for (let file of files) {
-    const fileRes = await fetch(`${API_BASE}/download/${file.id}`);
-    if (!fileRes.ok) {
-      console.warn('No se pudo descargar:', file.nombre, file.id);
-      continue;
+  try {
+    const headers = getAuthHeaders();
+    delete headers['Content-Type'];
+    
+    const res = await fetch(`${API_BASE}/files`, { headers });
+    if (!res.ok) {
+      throw new Error(`Error ${res.status}: ${res.statusText}`);
     }
-    const blob = await fileRes.blob();
-    const arrayBuffer = await blob.arrayBuffer();
+    
+    const data = await res.json();
+    const files = Array.isArray(data) ? data : data.archivos || [];
 
-    // SheetJS ya está cargado desde el HTML
-    const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-    const firstSheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[firstSheetName];
-    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+    for (let file of files) {
+      const fileRes = await fetch(`${API_BASE}/download/${file.id}`, { headers });
+      if (!fileRes.ok) {
+        console.warn('No se pudo descargar:', file.nombre, file.id);
+        continue;
+      }
+      const blob = await fileRes.blob();
+      const arrayBuffer = await blob.arrayBuffer();
 
-    const fileKey = normalizeFileName(file.nombre);
+      const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-    // Si es el TOTAL, guardamos además la vista por PERIODO 
-    if (file.nombre.toUpperCase().includes("REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL_TOTAL")) {
-      let targetPeriod = selectedPeriod;
-      if (!targetPeriod) {
-        // Si aún no hay selección, deducir el más reciente del propio archivo
-        const uniquePeriods = Array.from(new Set(jsonData.map(r => norm(r['PERIODO'])).filter(Boolean)));
-        targetPeriod = pickMostRecentPeriod(uniquePeriods);
-        // Persistir selección deducida
-        if (targetPeriod) {
-          localStorage.setItem('selectedPeriod', targetPeriod);
-          if (periodSelect && [...periodSelect.options].some(o => o.value === targetPeriod)) {
-            periodSelect.value = targetPeriod;
+      const fileKey = normalizeFileName(file.nombre);
+
+      // Si es el TOTAL, guardamos además la vista por PERIODO 
+      if (file.nombre.toUpperCase().includes("REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL_TOTAL")) {
+        let targetPeriod = selectedPeriod;
+        if (!targetPeriod) {
+          const uniquePeriods = Array.from(new Set(jsonData.map(r => norm(r['PERIODO'])).filter(Boolean)));
+          targetPeriod = pickMostRecentPeriod(uniquePeriods);
+          if (targetPeriod) {
+            localStorage.setItem('selectedPeriod', targetPeriod);
+            if (periodSelect && [...periodSelect.options].some(o => o.value === targetPeriod)) {
+              periodSelect.value = targetPeriod;
+            }
           }
         }
+        const filtered = jsonData.filter(row => norm(row['PERIODO']) === targetPeriod);
+        await saveData("academicTrackingData_REPORTE_POR_SEMESTRE", filtered);
+        console.log(`📂 Guardado academicTrackingData_REPORTE_POR_SEMESTRE (${filtered.length} registros) para ${targetPeriod}`);
       }
-      const filtered = jsonData.filter(row => norm(row['PERIODO']) === targetPeriod);
-      await saveData("academicTrackingData_REPORTE_POR_SEMESTRE", filtered);
-      console.log(`📂 Guardado academicTrackingData_REPORTE_POR_SEMESTRE (${filtered.length} registros) para ${targetPeriod}`);
+
+      const key = `academicTrackingData_${fileKey}`;
+      await saveData(key, jsonData);
     }
 
-    // Guardar dataset por archivo (sin filtro)
-    const key = `academicTrackingData_${fileKey}`;
-    await saveData(key, jsonData);
+    await populatePeriodSelectFromLocal();
+  } catch (error) {
+    console.error('Error en sincronización:', error);
+    throw error;
   }
-
-  // Refrescar combo de periodos tras sincronizar
-  await populatePeriodSelectFromLocal();
 }
 
 /* ===============================
@@ -335,16 +526,16 @@ function pickMostRecentPeriod(periods) {
   };
   const sorted = periods.slice().sort((A, B) => {
     const a = parsePeriod(A), b = parsePeriod(B);
-    if (a.y1 !== b.y1) return b.y1 - a.y1;   // año inicial DESC
-    if (a.term !== b.term) return b.term - a.term; // CII (2) antes que CI (1)
+    if (a.y1 !== b.y1) return b.y1 - a.y1;
+    if (a.term !== b.term) return b.term - a.term;
     return String(b.raw).localeCompare(String(a.raw));
   });
   return sorted[0] || '';
 }
 
-/* ================
-   LLENAR COMBO 
-================ */
+/* ===============================
+   LLENAR COMBO DE PERIODOS
+================================= */
 async function populatePeriodSelectFromLocal() {
   const select = document.getElementById('period-select');
   if (!select) return;
@@ -378,11 +569,9 @@ async function populatePeriodSelectFromLocal() {
     return String(b.raw).localeCompare(String(a.raw));
   });
 
-  // Mantener selección previa si sigue válida; si no, usar la más reciente
   const saved = localStorage.getItem('selectedPeriod');
   const selected = (saved && periods.includes(saved)) ? saved : pickMostRecentPeriod(periods);
 
-  // Render de opciones
   select.innerHTML = '';
   for (const p of periods) {
     const opt = document.createElement('option');
@@ -397,38 +586,233 @@ async function populatePeriodSelectFromLocal() {
 }
 
 /* ===============================
-   CARGAR / GUARDAR PLANTILLAS
+   OBTENER CORREO AUTORIDAD COMPARTIDO
+================================= */
+async function getSharedCorreoAutoridad() {
+  try {
+    // Intentar cargar desde la API primero
+    const headers = getAuthHeaders();
+    const correoRes = await fetch(`${API_BASE}/correo-autoridad`, { headers });
+    
+    if (correoRes.ok) {
+      const correoData = await correoRes.json();
+      const correo = correoData.correoAutoridad || 'alvaro.espinozabu@ug.edu.ec';
+      
+      // Guardar en IndexedDB para uso posterior
+      await saveData('shared_correo_autoridad', correo);
+      return correo;
+    }
+  } catch (error) {
+    console.warn('⚠️ Error cargando correo desde API, intentando IndexedDB:', error);
+  }
+  
+  try {
+    // Intentar cargar desde IndexedDB como respaldo
+    const savedCorreo = await loadData('shared_correo_autoridad');
+    return savedCorreo || 'alvaro.espinozabu@ug.edu.ec';
+  } catch (error) {
+    console.error('⚠️ Error cargando correo desde IndexedDB:', error);
+    return 'alvaro.espinozabu@ug.edu.ec'; // fallback final
+  }
+}
+
+/* ===============================
+   CARGAR PLANTILLAS POR TIPO - CON CORREO COMPARTIDO
 ================================= */
 async function loadTemplates() {
+  const tipoSelect = document.getElementById('template-type-select');
+  const currentType = tipoSelect?.value || 'seguimiento';
+  
   try {
-    // Primero intentar cargar desde IndexedDB (datos locales)
-    const local = await loadData('emailTemplates');
-    if (local) {
-      document.getElementById('correo').value = local.correoAutoridad || '';
-      document.getElementById('template-autoridad').value = local.autoridad || '';
-      document.getElementById('template-docente').value = local.docente || '';
-      document.getElementById('template-estudiante').value = local.estudiante || '';
+    // Primero intentar cargar desde la API con el tipo específico
+    const headers = getAuthHeaders();
+    const res = await fetch(`${API_BASE}/plantillas?tipo=${currentType}`, { headers });
+    
+    if (res.ok) {
+      const data = await res.json();
+      // Si la API devuelve datos, usarlos
+      if (data && (data.autoridad || data.docente || data.estudiante)) {
+        document.getElementById('template-autoridad').value = data.autoridad || '';
+        document.getElementById('template-docente').value = data.docente || '';
+        document.getElementById('template-estudiante').value = data.estudiante || '';
+        
+        // Cargar el correo compartido
+        const correoAutoridad = await getSharedCorreoAutoridad();
+        document.getElementById('correo').value = correoAutoridad;
+        
+        return; // Salir aquí si la API funcionó
+      }
     }
-
-    // Luego cargar las plantillas desde la API (solo las 3 plantillas, no correoAutoridad)
-    const res = await fetch(`${API_BASE}/plantillas`);
-    const data = await res.json();
-
-    // Solo actualizar las plantillas desde la API, mantener correoAutoridad local
-    document.getElementById('template-autoridad').value = data.autoridad || document.getElementById('template-autoridad').value;
-    document.getElementById('template-docente').value = data.docente || document.getElementById('template-docente').value;
-    document.getElementById('template-estudiante').value = data.estudiante || document.getElementById('template-estudiante').value;
-
+    
+    console.warn('API no devolvió datos, cargando desde IndexedDB...');
+    
   } catch (error) {
-    console.error('⚠️ Error cargando plantillas de la API:', error);
-    // Si falla la API, solo usar datos locales
-    const local = await loadData('emailTemplates');
+    console.error('⚠️ Error cargando plantillas desde API:', error);
+  }
+  
+  // Si la API falló o no devolvió datos, cargar desde IndexedDB
+  try {
+    const localKey = `emailTemplates_${currentType}`;
+    const local = await loadData(localKey);
+    
+    // Cargar el correo compartido independientemente de las plantillas
+    const correoAutoridad = await getSharedCorreoAutoridad();
+    document.getElementById('correo').value = correoAutoridad;
+    
     if (local) {
-      document.getElementById('correo').value = local.correoAutoridad || '';
       document.getElementById('template-autoridad').value = local.autoridad || '';
       document.getElementById('template-docente').value = local.docente || '';
       document.getElementById('template-estudiante').value = local.estudiante || '';
+    } else {
+      // Si no hay datos locales, limpiar los campos de plantillas
+      document.getElementById('template-autoridad').value = '';
+      document.getElementById('template-docente').value = '';
+      document.getElementById('template-estudiante').value = '';
     }
+    
+  } catch (localError) {
+    console.error('⚠️ Error cargando plantillas desde IndexedDB:', localError);
+    // Limpiar campos en caso de error total
+    document.getElementById('template-autoridad').value = '';
+    document.getElementById('template-docente').value = '';
+    document.getElementById('template-estudiante').value = '';
+    
+    // Aún así intentar cargar el correo compartido
+    try {
+      const correoAutoridad = await getSharedCorreoAutoridad();
+      document.getElementById('correo').value = correoAutoridad;
+    } catch {
+      document.getElementById('correo').value = 'alvaro.espinozabu@ug.edu.ec';
+    }
+  }
+}
+
+/* ===============================
+   CARGAR CORREO AUTORIDAD (FUNCIÓN INDEPENDIENTE)
+================================= */
+async function loadCorreoAutoridad() {
+  try {
+    const correoAutoridad = await getSharedCorreoAutoridad();
+    document.getElementById('correo').value = correoAutoridad;
+    console.log(`✅ Correo de autoridad cargado: ${correoAutoridad}`);
+  } catch (error) {
+    console.error('⚠️ Error cargando correo de autoridad:', error);
+    document.getElementById('correo').value = 'alvaro.espinozabu@ug.edu.ec'; // fallback
+  }
+}
+
+/* ===============================
+   ACTUALIZAR CORREO EN TODAS LAS PLANTILLAS EXISTENTES
+================================= */
+async function updateSharedCorreoInAllTemplates(newCorreo) {
+  const templateTypes = ['seguimiento', 'inasistencia', 'otro']; // Ajusta según tus tipos
+  
+  for (const tipo of templateTypes) {
+    try {
+      const localKey = `emailTemplates_${tipo}`;
+      const existingTemplate = await loadData(localKey);
+      
+      if (existingTemplate) {
+        // Actualizar el correo manteniendo las demás plantillas
+        existingTemplate.correoAutoridad = newCorreo;
+        await saveData(localKey, existingTemplate);
+        console.log(`✅ Correo actualizado en plantilla tipo: ${tipo}`);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Error actualizando correo en plantilla ${tipo}:`, error);
+    }
+  }
+}
+
+/* ===============================
+   GUARDAR PLANTILLAS POR TIPO - CON CORREO COMPARTIDO
+================================= */
+async function saveTemplates() {
+  const tipoSelect = document.getElementById('template-type-select');
+  const currentType = tipoSelect?.value || 'seguimiento';
+  
+  const templateAutoridad = document.getElementById('template-autoridad').value;
+  const templateDocente   = document.getElementById('template-docente').value;
+  const templateEstudiante= document.getElementById('template-estudiante').value;
+  const correoInput = document.getElementById('correo').value.trim();
+  const correoAutoridad = correoInput === "" ? "alvaro.espinozabu@ug.edu.ec" : correoInput;
+
+  try {
+    // 1. Guardar el correo compartido globalmente
+    await saveData('shared_correo_autoridad', correoAutoridad);
+    
+    // 2. Actualizar el correo en todas las plantillas existentes
+    await updateSharedCorreoInAllTemplates(correoAutoridad);
+    
+    // 3. Guardar las plantillas del tipo actual (sin correo, ya que ahora es compartido)
+    const localTemplates = { 
+      autoridad: templateAutoridad, 
+      docente: templateDocente, 
+      estudiante: templateEstudiante 
+    };
+    const localKey = `emailTemplates_${currentType}`;
+    await saveData(localKey, localTemplates);
+
+    // 4. Enviar plantillas a la API (sin correoAutoridad)
+    const apiTemplates = { 
+      autoridad: templateAutoridad, 
+      docente: templateDocente, 
+      estudiante: templateEstudiante,
+      tipo: currentType
+    };
+
+    const headers = getAuthHeaders();
+    await fetch(`${API_BASE}/plantillas`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(apiTemplates)
+    });
+    
+    // 5. Guardar correo en la API por separado
+    await saveCorreoAutoridad(correoAutoridad);
+    
+    await Swal.fire({
+      icon: 'success',
+      title: '¡Plantillas guardadas!',
+      text: `✅ Plantillas de tipo "${currentType}" y correo de autoridad guardados correctamente para todas las plantillas.`,
+      confirmButtonColor: '#3085d6'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error al guardar plantillas:', error);
+    await Swal.fire({
+      icon: 'warning',
+      title: 'Guardado parcial',
+      text: '⚠️ Las plantillas se guardaron localmente, pero no se pudo sincronizar completamente con el servidor.',
+      confirmButtonColor: '#f39c12'
+    });
+  }
+}
+
+/* ===============================
+   GUARDAR CORREO AUTORIDAD
+================================= */
+async function saveCorreoAutoridad(correoAutoridad) {
+  try {
+    const headers = getAuthHeaders();
+    const correoData = { correoAutoridad: correoAutoridad };
+    
+    const correoResponse = await fetch(`${API_BASE}/correo-autoridad`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(correoData)
+    });
+    
+    if (!correoResponse.ok) {
+      const errorResult = await correoResponse.json();
+      throw new Error('Error guardando correo: ' + (errorResult.error || correoResponse.status));
+    }
+    
+    console.log('✅ Correo de autoridad guardado correctamente en la API');
+    
+  } catch (error) {
+    console.error('❌ Error guardando correo de autoridad:', error);
+    throw error; // Re-throw para que sea manejado por la función principal
   }
 }
 
@@ -436,6 +820,21 @@ async function loadTemplates() {
    DOMContentLoaded
 ================================= */
 document.addEventListener('DOMContentLoaded', async function () {
+  // Verificar autenticación
+  const userData = getUserData();
+  if (!userData?.usuario) {
+    await Swal.fire({
+      icon: 'error',
+      title: 'Sesión requerida',
+      text: 'Debes iniciar sesión para acceder a esta página.',
+      confirmButtonColor: '#d33'
+    });
+    window.location.href = '../index.html';
+    return;
+  }
+
+  console.log('Usuario autenticado:', userData.usuario, 'Facultad:', userData.facultadCod);
+
   // Mostrar nombres de archivos elegidos
   const backToMenuButton = document.getElementById('goToMenuButton');
   document.getElementById('excel-file-input')?.addEventListener('change', function (event) {
@@ -454,127 +853,100 @@ document.addEventListener('DOMContentLoaded', async function () {
   // Botón "Procesar Archivo(s)"
   document.getElementById('process-files-button')?.addEventListener('click', processExcelFile);
 
+  // Selector de tipo de plantilla
+  const typeSelect = document.getElementById('template-type-select');
+  if (typeSelect) {
+    typeSelect.addEventListener('change', loadTemplates);
+  }
+
   // Guardar plantillas
-  document.getElementById('save-templates-button')?.addEventListener('click', async function () {
-    const templateAutoridad = document.getElementById('template-autoridad').value;
-    const templateDocente   = document.getElementById('template-docente').value;
-    const templateEstudiante= document.getElementById('template-estudiante').value;
-    const correoInput = document.getElementById('correo').value.trim();
-    const correoAutoridad = correoInput === "" ? "alvaro.espinozabu@ug.edu.ec" : correoInput;
+  document.getElementById('save-templates-button')?.addEventListener('click', saveTemplates, saveCorreoAutoridad);  
 
-    // Guardar todo localmente en IndexedDB
-    const localTemplates = { 
-      correoAutoridad: correoAutoridad, 
-      autoridad: templateAutoridad, 
-      docente: templateDocente, 
-      estudiante: templateEstudiante 
-    };
-    await saveData('emailTemplates', localTemplates);
-
-    // Solo enviar las plantillas (no correoAutoridad) a la API
-    const apiTemplates = { 
-      autoridad: templateAutoridad, 
-      docente: templateDocente, 
-      estudiante: templateEstudiante 
-    };
-
-    try {
-      await fetch(`${API_BASE}/plantillas`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(apiTemplates)
-      });
-      await Swal.fire({
-        icon: 'success',
-        title: '¡Plantillas guardadas!',
-        text: '✅ Plantillas guardadas correctamente.',
-        confirmButtonColor: '#3085d6'
-      });
-    } catch (error) {
-      console.error('❌ Error al guardar plantillas en la API:', error);
-      await Swal.fire({
-        icon: 'warning',
-        title: 'Guardado parcial',
-        text: '⚠️ Las plantillas se guardaron localmente, pero no se pudo sincronizar con el servidor.',
-        confirmButtonColor: '#f39c12'
-      });
-    }
-  });
-
-  // Carga inicial
-  await loadTemplates();
-  await fetchAndRenderProcessedFiles();
-  await populatePeriodSelectFromLocal();
-
-  // Si hay combo, restaurar selección previa (ya aplicada en populate) y actualizar vista al cambiar
+  // Selector de período
   const periodSelect = document.getElementById('period-select');
   if (periodSelect) {
     periodSelect.addEventListener('change', async () => {
       localStorage.setItem('selectedPeriod', periodSelect.value);
-      await updatePeriodViewFromLocal(); // actualizar tabla sin recargar
+      await updatePeriodViewFromLocal();
     });
   }
 
-  backToMenuButton.addEventListener('click', () => {
-        window.location.href = '../index.html';
-  });
+  // Botón volver al menú
+  if (backToMenuButton) {
+    backToMenuButton.addEventListener('click', () => {
+      window.location.href = '../index.html';
+    });
+  }
 
-  // Tooltip robusto para .info-badge (hover y foco)
-(function setupFloatingTooltip(){
-  let tipEl = null;
-
-  const show = (el) => {
-    const text = el.getAttribute('data-tooltip') || el.getAttribute('title') || '';
-    if (!text) return;
-
-    if (!tipEl) {
-      tipEl = document.createElement('div');
-      tipEl.className = 'tooltip-pop';
-      document.body.appendChild(tipEl);
+  // Carga inicial
+  try {
+    await loadTemplates();
+    await loadCorreoAutoridad();
+    await fetchAndRenderProcessedFiles();
+    await populatePeriodSelectFromLocal();
+  } catch (error) {
+    console.error('Error en carga inicial:', error);
+    if (error.message.includes('Usuario no autenticado')) {
+      await Swal.fire({
+        icon: 'error',
+        title: 'Sesión expirada',
+        text: 'Tu sesión ha expirado. Serás redirigido al login.',
+        confirmButtonColor: '#d33'
+      });
+      window.location.href = '../index.html';
     }
-    tipEl.textContent = text;
-    tipEl.style.opacity = '0';
-    tipEl.style.display = 'block';
+  }
 
-    const r = el.getBoundingClientRect();
-    const margin = 10;
+  // Tooltip para info badges
+  (function setupFloatingTooltip(){
+    let tipEl = null;
 
-    // Primero centrado arriba del ícono
-    // (OJO: con position: fixed NO se suman scrollX/scrollY)
-    let left = r.left + r.width / 2 - tipEl.offsetWidth / 2;
-    left = Math.max(8, Math.min(left, window.innerWidth - tipEl.offsetWidth - 8));
+    const show = (el) => {
+      const text = el.getAttribute('data-tooltip') || el.getAttribute('title') || '';
+      if (!text) return;
 
-    let top = r.top - tipEl.offsetHeight - margin;
-    let pos = 'top';
+      if (!tipEl) {
+        tipEl = document.createElement('div');
+        tipEl.className = 'tooltip-pop';
+        document.body.appendChild(tipEl);
+      }
+      tipEl.textContent = text;
+      tipEl.style.opacity = '0';
+      tipEl.style.display = 'block';
 
-    // Si no hay espacio arriba, ponlo abajo del ícono
-    if (top < 8) {
-      top = r.bottom + margin;
-      pos = 'bottom';
-    }
+      const r = el.getBoundingClientRect();
+      const margin = 10;
 
-    tipEl.dataset.pos = pos;      // para la flecha
-    tipEl.style.left = `${left}px`;
-    tipEl.style.top  = `${top}px`;
-    tipEl.style.opacity = '1';
-  };
+      let left = r.left + r.width / 2 - tipEl.offsetWidth / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - tipEl.offsetWidth - 8));
 
+      let top = r.top - tipEl.offsetHeight - margin;
+      let pos = 'top';
 
-  const hide = () => { if (tipEl) tipEl.style.display = 'none'; };
+      if (top < 8) {
+        top = r.bottom + margin;
+        pos = 'bottom';
+      }
 
-  // Delegación de eventos (soporta futuros badges)
-  document.addEventListener('mouseenter', (e) => {
-    const t = e.target.closest('.info-badge');
-    if (t) show(t);
-  }, true);
+      tipEl.dataset.pos = pos;
+      tipEl.style.left = `${left}px`;
+      tipEl.style.top  = `${top}px`;
+      tipEl.style.opacity = '1';
+    };
 
-  document.addEventListener('mouseleave', (e) => {
-    const t = e.target.closest('.info-badge');
-    if (t) hide();
-  }, true);
+    const hide = () => { if (tipEl) tipEl.style.display = 'none'; };
 
-  document.addEventListener('focusin',  (e) => { const t = e.target.closest('.info-badge'); if (t) show(t); });
-  document.addEventListener('focusout', (e) => { const t = e.target.closest('.info-badge'); if (t) hide(); });
-})();
+    document.addEventListener('mouseenter', (e) => {
+      const t = e.target.closest('.info-badge');
+      if (t) show(t);
+    }, true);
 
+    document.addEventListener('mouseleave', (e) => {
+      const t = e.target.closest('.info-badge');
+      if (t) hide();
+    }, true);
+
+    document.addEventListener('focusin',  (e) => { const t = e.target.closest('.info-badge'); if (t) show(t); });
+    document.addEventListener('focusout', (e) => { const t = e.target.closest('.info-badge'); if (t) hide(); });
+  })();
 });

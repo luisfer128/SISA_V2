@@ -131,7 +131,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
       }
       const data = await resp.json();
-      await saveData('modulePermissions', data.permissions);
       await saveData('currentUserInfo', data.userInfo);
       return data.permissions;
     } catch (e) {
@@ -239,65 +238,137 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ---------- Sincronización de archivos filtrada por facultad ----------
   async function syncFilesFromBackendIfNeeded() {
-    try {
-      const resp = await authenticatedFetch(`${API_BASE}/files`);
-      if (!resp.ok) throw new Error(`/files respondió ${resp.status}`);
-      const files = await resp.json();
+  try {
+    // Obtener archivos disponibles en el backend (ya filtrados por facultad del usuario)
+    const resp = await authenticatedFetch(`${API_BASE}/files`);
+    if (!resp.ok) throw new Error(`/files respondió ${resp.status}`);
+    
+    const backendFiles = await resp.json();
+    const filesArray = Array.isArray(backendFiles) ? backendFiles : 
+                      (Array.isArray(backendFiles.archivos) ? backendFiles.archivos : []);
 
-      const currentSignature = buildFilesSignature(files);
+    if (filesArray.length === 0) {
+      console.log('ℹ️ No hay archivos disponibles para tu facultad');
+      return false;
+    }
+
+    console.log(`📁 Encontrados ${filesArray.length} archivos en el backend para tu facultad`);
+
+    // Verificar qué archivos ya están descargados localmente
+    await ensureXLSXLoaded();
+    
+    const missingFiles = [];
+    const existingFiles = [];
+
+    for (const file of filesArray) {
+      const nombre = file.nombre ?? file.NombreArchivo;
+      const id = file.id;
+      
+      if (!nombre || !id) continue;
+
+      const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
+      const localData = await loadData(localKey);
+
+      if (!localData || !Array.isArray(localData) || localData.length === 0) {
+        missingFiles.push(file);
+      } else {
+        existingFiles.push(file);
+      }
+    }
+
+    console.log(`📊 Estado de archivos: ${existingFiles.length} ya descargados, ${missingFiles.length} por descargar`);
+
+    // Si no hay archivos faltantes, verificar si hay cambios en metadatos
+    if (missingFiles.length === 0) {
+      const currentSignature = buildFilesSignature(filesArray);
       const storedSignature = await loadData('filesSignature');
-
-      if (storedSignature && storedSignature === currentSignature) {
+      
+      if (storedSignature === currentSignature) {
+        console.log('✅ Todos los archivos están actualizados');
         return false;
       }
+    }
 
-      showOverlay('Preparando sincronización...');
-      await ensureXLSXLoaded();
+    // Descargar solo los archivos faltantes
+    if (missingFiles.length > 0) {
+      showOverlay(`Descargando ${missingFiles.length} archivo(s) faltante(s)...`);
+      
+      let downloadedCount = 0;
+      const errors = [];
 
-      const processedFiles = [];
-      const total = files.length;
-      let done = 0;
+      for (const file of missingFiles) {
+        const nombre = file.nombre ?? file.NombreArchivo;
+        const id = file.id;
+        const facultadInfo = file.facultadCod ? ` (${file.facultadCod})` : '';
+        
+        try {
+          showOverlay(`Descargando "${nombre}"${facultadInfo} (${downloadedCount + 1}/${missingFiles.length})...`);
+          
+          const fileRes = await authenticatedFetch(`${API_BASE}/download/${id}`);
+          if (!fileRes.ok) {
+            throw new Error(`HTTP ${fileRes.status}: ${fileRes.statusText}`);
+          }
 
-      for (const f of files) {
-        const nombre = f.nombre ?? f.NombreArchivo;
-        const id = f.id;
-        if (!nombre || !id) { 
-          done++; 
-          continue; 
+          const blob = await fileRes.blob();
+          showOverlay(`Procesando "${nombre}" (${downloadedCount + 1}/${missingFiles.length})...`);
+          
+          const arrayBuffer = await blob.arrayBuffer();
+          const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+          const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
+          await saveData(localKey, jsonData);
+          
+          downloadedCount++;
+          console.log(`✅ Descargado: ${nombre} (${jsonData.length} registros)`);
+          
+        } catch (error) {
+          console.error(`❌ Error descargando ${nombre}:`, error);
+          errors.push({ nombre, error: error.message });
         }
-
-        showOverlay(`Descargando "${nombre}" (${done + 1}/${total})...`);
-        const fileRes = await authenticatedFetch(`${API_BASE}/download/${id}`);
-        if (!fileRes.ok) { 
-          console.warn('No se pudo descargar:', nombre, id); 
-          done++; 
-          continue; 
-        }
-
-        const blob = await fileRes.blob();
-        showOverlay(`Procesando "${nombre}" (${done + 1}/${total})...`);
-        const arrayBuffer = await blob.arrayBuffer();
-        const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-        const key = `academicTrackingData_${normalizeFileName(nombre)}`;
-        await saveData(key, jsonData);
-        processedFiles.push(nombre);
-        done++;
       }
 
-      await saveData('processedFiles', processedFiles);
-      await saveData('filesSignature', currentSignature);
-      return true;
-    } catch (err) {
-      console.error('⚠️ Error al sincronizar con backend:', err);
-      return false;
-    } finally {
-      hideOverlay();
+      // Mostrar resumen de descargas
+      if (downloadedCount > 0) {
+        showOverlay(`✅ ${downloadedCount} archivo(s) descargado(s) correctamente`);
+        
+        // Actualizar signature después de descargas exitosas
+        const newSignature = buildFilesSignature(filesArray);
+        await saveData('filesSignature', newSignature);
+        await saveData('lastSyncAt', new Date().toISOString());
+        
+        setTimeout(hideOverlay, 2000);
+      }
+
+      // Mostrar errores si los hay
+      if (errors.length > 0) {
+        console.warn(`⚠️ ${errors.length} archivo(s) no se pudieron descargar:`, errors);
+        showOverlay(`⚠️ ${downloadedCount} descargados, ${errors.length} con errores`);
+        setTimeout(hideOverlay, 3000);
+      }
+
+      return downloadedCount > 0;
     }
+
+    // Solo actualizar signature si no había archivos faltantes pero hay cambios en metadatos
+    const newSignature = buildFilesSignature(filesArray);
+    await saveData('filesSignature', newSignature);
+    await saveData('lastSyncAt', new Date().toISOString());
+    
+    return false;
+
+  } catch (error) {
+    console.error('❌ Error en sincronización de archivos:', error);
+    
+    // Mostrar error amigable al usuario
+    showOverlay('❌ Error al verificar archivos del servidor');
+    setTimeout(hideOverlay, 3000);
+    
+    return false;
   }
+}
 
   // ---------- Detectar último periodo ----------
   function findLatestPeriod(periods) {
@@ -334,24 +405,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     await saveData('lastPeriodUpdatedAt', new Date().toISOString());
   }
 
-  // ---------- Mostrar información del usuario ----------
-  function displayUserInfo() {
-    const userInfoElement = document.createElement('div');
-    userInfoElement.className = 'user-info';
-    userInfoElement.innerHTML = `
-      <div class="user-details">
-        <h4>Bienvenido: ${currentUser.usuario}</h4>
-        <p>Rol: ${currentUser.rolNombre || 'No definido'}</p>
-        <p>Facultad: ${currentUser.facultadNombre || currentUser.facultadCod || 'No asignada'}</p>
-        ${currentUser.carreraNombre ? `<p>Carrera: ${currentUser.carreraNombre}</p>` : ''}
+  // ---------- Mostrar información en el NAVBAR (reemplaze displayUserInfo) ----------
+  function getInitials(name = '') {
+    try {
+      const parts = name.trim().split(/\s+/);
+      if (!parts.length) return '';
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    } catch { return ''; }
+  }
+  function escapeHtml(str = '') {
+    return String(str).replace(/[&<>"'`]/g, (s) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[s]));
+  }
+
+  function displayNavbarInfo() {
+    const userInfoContainer = document.getElementById('navbar-userinfo');
+    if (!userInfoContainer || !currentUser) return;
+
+    const name = getUsernameFromUserData(currentUser) || 'Sin nombre';
+    const role = currentUser.rolNombre || 'No definido';
+    const faculty = currentUser.facultadNombre || currentUser.facultadCod || 'No asignada';
+    const initials = getInitials(name);
+
+    userInfoContainer.innerHTML = `
+      <div class="user-block" title="${escapeHtml(name)} — ${escapeHtml(role)}">
+        <div class="avatar" aria-hidden="true">${initials}</div>
+        <div class="user-meta">
+          <div class="user-name">${escapeHtml(name)}</div>
+          <div class="user-tags">
+            <div class="user-sub">${escapeHtml(role)}</div>
+            <div class="user-fac">${escapeHtml(faculty)}</div>
+          </div>
+        </div>
       </div>
     `;
-    
-    // Insertar al inicio del contenedor del menú
-    if (menuContainer) {
-      menuContainer.insertBefore(userInfoElement, menuContainer.firstChild);
+
+    // Conectar botón cerrar sesión
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+      logoutBtn.onclick = async () => {
+        await removeData('isLoggedIn');
+        await removeData('sessionExpiresAt');
+        await removeData('userData');
+        await removeData('modulePermissions');
+        await removeData('currentUserInfo');
+        location.href = 'login.html';
+      };
     }
+    // const fullName = `${currentUser.nombres || ''} ${currentUser.apellidos || ''}`.trim();
+    // const displayName = fullName || currentUser.usuario; // si no hay nombres, muestra el usuario
+
   }
+
+  
 
   // ---------- Menú con validación de permisos ----------
   async function populateMenu() {
@@ -491,20 +597,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       menuGrid.appendChild(el);
     }
-
-    // Botón cerrar sesión
-    const logoutBtn = document.createElement('button');
-    logoutBtn.textContent = 'Cerrar Sesión';
-    logoutBtn.classList.add('logout-button');
-    logoutBtn.onclick = async () => {
-      await removeData('isLoggedIn');
-      await removeData('sessionExpiresAt');
-      await removeData('userData');
-      await removeData('modulePermissions');
-      await removeData('currentUserInfo');
-      location.href = 'login.html';
-    };
-    menuContainer.appendChild(logoutBtn);
+    
   }
 
   async function openAdmin(username) {
@@ -539,7 +632,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (__roleReloading) return;
 
   // Mostrar información del usuario
-  displayUserInfo();
+  displayNavbarInfo();
+
 
   // Cargar plantillas de email
   await ensureEmailTemplates();
@@ -559,7 +653,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Cargar y renderizar menú con permisos
   await populateMenu();
 
-  console.log('Sistema FACAF iniciado correctamente para:', {
+  console.log('Sistema SISA iniciado correctamente para:', {
     usuario: currentUser.usuario,
     rol: currentUser.rolNombre,
     facultad: currentUser.facultadNombre || currentUser.facultadCod
