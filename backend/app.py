@@ -20,6 +20,8 @@ from database import (
     obtener_roles,
     obtener_facultades,
     obtener_carreras_por_facultad,
+    obtener_correo_autoridad,
+    actualizar_correo_autoridad
 )
 import msal
 
@@ -135,103 +137,334 @@ def api_get_carreras(facultad_cod):
         return jsonify({'error': str(e)}), 500
 
 
-# ======================= ARCHIVOS CON FILTRO POR FACULTAD ===========================
+# ======================= ARCHIVOS CON FacultadCod DESDE FRONTEND ===========================
 @app.post('/upload')
 @require_auth
 def subir_archivo():
+    """Subida de archivo con FacultadCod enviado desde el frontend"""
     archivo = request.files.get('file')
     if not archivo or archivo.filename.strip() == '':
         return jsonify({'error': 'No se envió archivo o nombre vacío'}), 400
 
-    # Usar la facultad del usuario autenticado
-    facultad_cod = request.user.get('facultadCod')
+    # Obtener FacultadCod desde el formulario o parámetros
+    facultad_cod = request.form.get('facultadCod') or request.args.get('facultadCod')
     if not facultad_cod:
-        return jsonify({'error': 'Usuario sin facultad asignada'}), 400
+        return jsonify({'error': 'FacultadCod es requerido'}), 400
+
+    # Validar que el FacultadCod existe en la base de datos
+    try:
+        conn = conectar()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM Facultad WHERE FacultadCod = ?", (facultad_cod,))
+        existe_facultad = cur.fetchone()[0] > 0
+        cur.close()
+        conn.close()
+
+        if not existe_facultad:
+            return jsonify({'error': f'FacultadCod {facultad_cod} no existe'}), 400
+    except Exception as e:
+        return jsonify({'error': f'Error validando facultad: {e}'}), 500
+
+    # Validación de permisos por rol
+    user_role = request.user.get('rolNombre', '').lower()
+    user_facultad = request.user.get('facultadCod')
+
+    # Admin puede subir a cualquier facultad
+    # Otros usuarios solo pueden subir a su propia facultad
+    if user_role != 'admin' and facultad_cod != user_facultad:
+        return jsonify({'error': 'No tienes permisos para subir archivos a esta facultad'}), 403
 
     try:
         guardar_archivo_excel(archivo, facultad_cod)
-        return jsonify({'message': f'Archivo "{archivo.filename}" guardado correctamente'}), 200
+        return jsonify({
+            'message': f'Archivo "{archivo.filename}" guardado correctamente para facultad {facultad_cod}',
+            'facultadCod': facultad_cod
+        }), 200
     except Exception as e:
+        print(f"❌ Error en upload: {e}")
         return jsonify({'error': f'No se pudo guardar: {e}'}), 500
-
-
-@app.delete('/delete/by-name/<string:filename>')
-@require_auth
-def eliminar_archivo_por_nombre(filename):
-    facultad_cod = request.user.get('facultadCod')
-    try:
-        conexion = conectar()
-        cursor = conexion.cursor()
-        cursor.execute("""
-            DELETE FROM ArchivosExcel 
-            WHERE NombreArchivo = ? AND FacultadCod = ?
-        """, (filename, facultad_cod))
-        rows = cursor.rowcount
-        conexion.commit()
-        cursor.close()
-        conexion.close()
-
-        if rows and rows > 0:
-            return jsonify({'message': 'Archivo eliminado correctamente'}), 200
-        return jsonify({'error': 'Archivo no encontrado'}), 404
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 
 @app.get('/files')
 @require_auth
 def listar():
-    """Lista archivos filtrados por la facultad del usuario"""
+    """Lista archivos con FacultadCod opcional desde query params"""
     try:
-        # Admin puede ver todos los archivos, otros solo de su facultad
-        facultad_cod = None if request.user.get('rolNombre', '').lower() == 'admin' else request.user.get('facultadCod')
+        user_role = request.user.get('rolNombre', '').lower()
+        user_facultad = request.user.get('facultadCod')
+
+        # Obtener FacultadCod desde query params
+        facultad_filter = request.args.get('facultadCod')
+
+        # Validación de permisos
+        if user_role == 'admin':
+            # Admin puede ver archivos de cualquier facultad o todas
+            facultad_cod = facultad_filter  # Usar el filtro enviado o None para ver todas
+        else:
+            # Otros usuarios solo pueden ver archivos de su facultad
+            if facultad_filter and facultad_filter != user_facultad:
+                return jsonify({'error': 'No tienes permisos para ver archivos de esta facultad'}), 403
+            facultad_cod = user_facultad  # Forzar a su propia facultad
+
         archivos = listar_archivos_por_facultad(facultad_cod)
-        return jsonify(archivos)
+
+        response_data = {
+            'archivos': archivos,
+            'facultadFiltro': facultad_cod,
+            'total': len(archivos)
+        }
+
+        # Info adicional para admin
+        if user_role == 'admin':
+            response_data['debug_info'] = {
+                'user_role': user_role,
+                'user_facultad': user_facultad,
+                'filtro_aplicado': facultad_cod
+            }
+
+        return jsonify(response_data)
+
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        print(f"❌ Error listando archivos: {e}")
+        return jsonify({'error': f'Error al listar archivos: {e}'}), 500
 
 
 @app.get('/download/<int:archivo_id>')
 @require_auth
 def descargar(archivo_id):
+    """Descarga archivo con validación de facultad opcional"""
     try:
-        # Admin puede descargar cualquier archivo, otros solo de su facultad
-        facultad_cod = request.user.get('facultadCod')
-        if request.user.get('rolNombre', '').lower() == 'admin':
-            # Para admin, usar función sin filtro
-            conn = conectar()
-            cur = conn.cursor()
-            cur.execute("SELECT NombreArchivo, TipoMime, Datos FROM ArchivosExcel WHERE Id = ?", (archivo_id,))
-            archivo = cur.fetchone()
-            cur.close()
-            conn.close()
-        else:
-            archivo = obtener_archivo_por_facultad(archivo_id, facultad_cod)
+        user_role = request.user.get('rolNombre', '').lower()
+        user_facultad = request.user.get('facultadCod')
 
-        if not archivo:
+        # Obtener información del archivo primero
+        conn = conectar()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT NombreArchivo, TipoMime, Datos, FacultadCod 
+            FROM ArchivosExcel 
+            WHERE Id = ?
+        """, (archivo_id,))
+        archivo_info = cur.fetchone()
+        cur.close()
+        conn.close()
+
+        if not archivo_info:
             return jsonify({'error': 'Archivo no encontrado'}), 404
 
-        nombre, tipo, contenido = archivo
+        nombre, tipo, contenido, archivo_facultad = archivo_info
+
+        # Validación de permisos
+        if user_role != 'admin' and archivo_facultad != user_facultad:
+            return jsonify({'error': 'No tienes permisos para descargar este archivo'}), 403
+
         bio = BytesIO(contenido)
         return send_file(
             bio,
             as_attachment=True,
             download_name=nombre,
-            mimetype=tipo or 'application/octet-stream'
+            mimetype=tipo or 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+
+    except Exception as e:
+        print(f"❌ Error descargando archivo: {e}")
+        return jsonify({'error': f'Error al descargar archivo: {e}'}), 500
+
+
+@app.delete('/delete/by-name/<string:filename>')
+@require_auth
+def eliminar_archivo_por_nombre(filename):
+    """Elimina archivo por nombre con FacultadCod opcional"""
+    try:
+        user_role = request.user.get('rolNombre', '').lower()
+        user_facultad = request.user.get('facultadCod')
+
+        # Obtener FacultadCod desde query params
+        facultad_cod = request.args.get('facultadCod')
+
+        # Validación de permisos
+        if user_role != 'admin':
+            if facultad_cod and facultad_cod != user_facultad:
+                return jsonify({'error': 'No tienes permisos para eliminar archivos de esta facultad'}), 403
+            # Forzar a su propia facultad si no especifica
+            facultad_cod = user_facultad
+
+        conn = conectar()
+        cursor = conn.cursor()
+
+        if user_role == 'admin' and not facultad_cod:
+            # Admin puede eliminar sin especificar facultad
+            cursor.execute("DELETE FROM ArchivosExcel WHERE NombreArchivo = ?", (filename,))
+        else:
+            # Eliminar con filtro de facultad
+            cursor.execute("""
+                DELETE FROM ArchivosExcel 
+                WHERE NombreArchivo = ? AND FacultadCod = ?
+            """, (filename, facultad_cod))
+
+            # Si no se eliminó, intentar con nombre único
+            if cursor.rowcount == 0:
+                nombre_unico = f"{filename}_{facultad_cod}"
+                cursor.execute("""
+                    DELETE FROM ArchivosExcel 
+                    WHERE NombreArchivo = ? AND FacultadCod = ?
+                """, (nombre_unico, facultad_cod))
+
+        rows_affected = cursor.rowcount
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        if rows_affected > 0:
+            return jsonify({
+                'message': f'Archivo "{filename}" eliminado correctamente',
+                'facultadCod': facultad_cod
+            }), 200
+        else:
+            return jsonify({'error': f'Archivo "{filename}" no encontrado o sin permisos'}), 404
+
+    except Exception as e:
+        print(f"❌ Error eliminando archivo: {e}")
+        return jsonify({'error': f'Error al eliminar archivo: {e}'}), 500
+
+
+# ======================= ENDPOINT DE DEBUG PARA VERIFICAR ARCHIVOS ===========================
+@app.get('/debug/files')
+@require_auth
+@require_role(['admin'])
+def debug_files():
+    """Endpoint de debug solo para admin - muestra todos los archivos con detalles"""
+    try:
+        conn = conectar()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT a.Id, a.NombreArchivo, a.FechaSubida, a.FacultadCod, 
+                   f.Nombre as FacultadNombre, a.TipoMime,
+                   LEN(a.Datos) as TamanoBytes
+            FROM ArchivosExcel a
+            INNER JOIN Facultad f ON a.FacultadCod = f.FacultadCod
+            ORDER BY a.FechaSubida DESC
+        """)
+
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        archivos_debug = []
+        for row in rows:
+            archivos_debug.append({
+                'id': row[0],
+                'nombre': row[1],
+                'fecha': row[2].strftime('%Y-%m-%d %H:%M:%S') if row[2] else None,
+                'facultadCod': row[3],
+                'facultadNombre': row[4],
+                'tipoMime': row[5],
+                'tamanoKB': round(row[6] / 1024, 2) if row[6] else 0
+            })
+
+        return jsonify({
+            'total_archivos': len(archivos_debug),
+            'archivos': archivos_debug,
+            'usuario_actual': {
+                'role': request.user.get('rolNombre'),
+                'facultad': request.user.get('facultadCod'),
+                'usuario': request.user.get('usuario')
+            }
+        })
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# ======================= ENDPOINT PARA LIMPIAR ARCHIVOS DUPLICADOS ===========================
+@app.post('/admin/cleanup-duplicates')
+@require_auth
+@require_role(['admin'])
+def cleanup_duplicates():
+    """Limpia archivos duplicados manteniendo el más reciente"""
+    try:
+        conn = conectar()
+        cur = conn.cursor()
+
+        # Encontrar duplicados por nombre
+        cur.execute("""
+            SELECT NombreArchivo, COUNT(*) as Duplicados
+            FROM ArchivosExcel 
+            GROUP BY NombreArchivo 
+            HAVING COUNT(*) > 1
+        """)
+
+        duplicados = cur.fetchall()
+        archivos_eliminados = 0
+
+        for nombre_archivo, count in duplicados:
+            # Para cada archivo duplicado, mantener solo el más reciente
+            cur.execute("""
+                DELETE FROM ArchivosExcel 
+                WHERE NombreArchivo = ? AND Id NOT IN (
+                    SELECT TOP 1 Id FROM ArchivosExcel 
+                    WHERE NombreArchivo = ? 
+                    ORDER BY FechaSubida DESC
+                )
+            """, (nombre_archivo, nombre_archivo))
+
+            archivos_eliminados += cur.rowcount
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            'message': f'Limpieza completada: {archivos_eliminados} archivos duplicados eliminados',
+            'duplicados_encontrados': len(duplicados)
+        })
+
+    except Exception as e:
+        return jsonify({'error': f'Error en limpieza: {e}'}), 500
 
 # ======================= PLANTILLAS CON VALIDACIÓN DE PERMISOS ===========================
 @app.get('/plantillas')
 @require_auth
 def get_plantillas():
-    """Obtiene plantillas por tipo (solo coordinadores y admin pueden acceder)"""
+    """Obtiene plantillas por tipo específico"""
     try:
         tipo = request.args.get('tipo', 'seguimiento')
+
+        # Validar que el tipo es válido
+        tipos_validos = ['seguimiento', 'nee', 'tercera_matricula', 'parcial', 'final']
+        if tipo not in tipos_validos:
+            return jsonify({
+                'error': f'Tipo no válido. Tipos disponibles: {", ".join(tipos_validos)}'
+            }), 400
+
         data = obtener_plantillas_por_tipo(tipo)
-        return jsonify(data)
+
+        return jsonify({
+            'tipo': tipo,
+            'plantillas': data,
+            'tipos_disponibles': tipos_validos
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.get('/plantillas/tipos')
+@require_auth
+def get_tipos_plantillas():
+    """Obtiene todos los tipos de plantillas disponibles"""
+    try:
+        conn = conectar()
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT Tipo FROM PlantillasCorreo ORDER BY Tipo")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        tipos = [row[0] for row in rows]
+        return jsonify({
+            'tipos': tipos,
+            'total': len(tipos)
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -240,12 +473,31 @@ def get_plantillas():
 @require_auth
 @require_role(['admin', 'coordinador'])
 def update_plantillas():
-    """Actualiza plantillas (solo coordinadores y admin)"""
+    """Actualiza plantillas por tipo específico"""
     try:
         datos = request.get_json(silent=True) or {}
-        tipo = datos.pop('tipo', 'seguimiento')  # Remover tipo de los datos antes de guardar
-        guardar_plantillas_por_tipo(datos, tipo)
-        return jsonify({'message': 'Plantillas actualizadas correctamente'})
+        tipo = datos.get('tipo', 'seguimiento')
+
+        # Validar que el tipo es válido
+        tipos_validos = ['seguimiento', 'nee', 'tercera_matricula', 'parcial', 'final']
+        if tipo not in tipos_validos:
+            return jsonify({
+                'error': f'Tipo no válido. Tipos disponibles: {", ".join(tipos_validos)}'
+            }), 400
+
+        # Extraer plantillas (sin incluir 'tipo' en los datos a guardar)
+        plantillas_data = {
+            'autoridad': datos.get('autoridad', ''),
+            'docente': datos.get('docente', ''),
+            'estudiante': datos.get('estudiante', '')
+        }
+
+        guardar_plantillas_por_tipo(plantillas_data, tipo)
+
+        return jsonify({
+            'message': f'Plantillas de tipo "{tipo}" actualizadas correctamente',
+            'tipo': tipo
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -586,6 +838,52 @@ def proxy_auth():
 def admin_link():
     """Acceso al panel de administración solo para admin"""
     return jsonify({"url": f"/Modules/panel-admin.html"})
+
+
+# ======================= AUTORIDAD CORREO =======================
+@app.get('/correo-autoridad')
+@require_auth
+def get_correo_autoridad_endpoint():
+    """Obtiene el correo de autoridad configurado"""
+    try:
+        correo = obtener_correo_autoridad()
+        return jsonify({
+            'correoAutoridad': correo
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.post('/correo-autoridad')
+@require_auth
+@require_role(['admin', 'coordinador'])
+def update_correo_autoridad_endpoint():
+    """Actualiza el correo de autoridad - solo admin y coordinador"""
+    try:
+        datos = request.get_json(silent=True) or {}
+        correo_autoridad = datos.get('correoAutoridad', '').strip()
+
+        if not correo_autoridad:
+            return jsonify({'error': 'correoAutoridad es requerido'}), 400
+
+        # Validación básica de formato email
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, correo_autoridad):
+            return jsonify({'error': 'Formato de correo inválido'}), 400
+
+        success = actualizar_correo_autoridad(correo_autoridad)
+
+        if success:
+            return jsonify({
+                'message': 'Correo de autoridad actualizado correctamente',
+                'correoAutoridad': correo_autoridad
+            })
+        else:
+            return jsonify({'error': 'Error al actualizar correo de autoridad'}), 500
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ======================= MAIN ===========================

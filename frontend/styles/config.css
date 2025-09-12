@@ -362,6 +362,163 @@ textarea:focus{ outline:none; border-color: var(--textarea-focus); box-shadow:0 
     color: #9ca3af;                  /* Placeholder más tenue */
 }
 
+/* Estilos para el selector de tipo de plantilla */
+.template-type-selector {
+    background: color-mix(in srgb, var(--panel-2) 90%, transparent);
+    border-radius: 16px;
+    padding: 25px;
+    margin-bottom: 25px;
+    border: 1px solid var(--panel-border);
+    position: relative;
+}
+
+.template-type-selector::before {
+    content: '\f0ae';
+    font-family: 'Font Awesome 6 Free';
+    font-weight: 900;
+    color: var(--primary);
+    font-size: 18px;
+    position: absolute;
+    top: 25px;
+    left: 25px;
+}
+
+.template-type-selector label {
+    display: block;
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 15px;
+    margin-left: 35px; /* Espacio para el ícono */
+}
+
+#template-type-select {
+    width: 100%;
+    appearance: none;
+    background: var(--textarea-bg);
+    color: var(--ink);
+    font-size: 15px;
+    font-weight: 500;
+    padding: 14px 45px 14px 18px;
+    border: 2px solid var(--textarea-border);
+    border-radius: 12px;
+    box-shadow: 0 3px 8px rgba(0,0,0,.08);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    font-family: inherit;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg fill='%23666' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'%3E<path d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 15px center;
+    background-size: 20px;
+}
+
+#template-type-select:hover {
+    border-color: var(--primary);
+    box-shadow: 0 5px 15px var(--textarea-focus-shadow);
+    transform: translateY(-1px);
+}
+
+#template-type-select:focus {
+    outline: none;
+    border-color: var(--textarea-focus);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+    background: var(--textarea-focus-bg);
+}
+
+#template-type-select option {
+    background: var(--panel-2);
+    color: var(--ink);
+    padding: 14px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    border-bottom: 1px solid var(--textarea-border);
+    transition: all 0.2s ease;
+    line-height: 1.4;
+}
+
+#template-type-select option:last-child {
+    border-bottom: none;
+}
+
+#template-type-select option:hover {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary2) 100%);
+    color: white;
+    transform: translateX(5px);
+    box-shadow: inset 4px 0 0 rgba(255,255,255,0.3);
+}
+
+#template-type-select option:checked,
+#template-type-select option:selected {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary2) 100%);
+    color: white;
+    font-weight: 600;
+    box-shadow: inset 4px 0 0 rgba(255,255,255,0.4);
+}
+
+/* Estilos específicos para cada opción con íconos */
+#template-type-select option[value="seguimiento"]::before {
+    content: "📊 ";
+    margin-right: 8px;
+}
+
+#template-type-select option[value="nee"]::before {
+    content: "🎯 ";
+    margin-right: 8px;
+}
+
+#template-type-select option[value="tercera_matricula"]::before {
+    content: "⚠️ ";
+    margin-right: 8px;
+}
+
+#template-type-select option[value="parcial"]::before {
+    content: "📝 ";
+    margin-right: 8px;
+}
+
+#template-type-select option[value="final"]::before {
+    content: "🎓 ";
+    margin-right: 8px;
+}
+
+/* Estilos adicionales para el dropdown en diferentes navegadores */
+#template-type-select {
+    /* Mejoras adicionales para el dropdown */
+    background-color: var(--textarea-bg);
+    border: 2px solid var(--textarea-border);
+}
+
+#template-type-select::-webkit-scrollbar {
+    width: 8px;
+}
+
+#template-type-select::-webkit-scrollbar-track {
+    background: var(--panel);
+    border-radius: 4px;
+}
+
+#template-type-select::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary2) 100%);
+    border-radius: 4px;
+}
+
+#template-type-select::-webkit-scrollbar-thumb:hover {
+    background: var(--primary2);
+}
+
+/* Estilos para Firefox */
+#template-type-select {
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) var(--panel);
+}
+
+/* Animación al abrir el dropdown */
+#template-type-select:focus option {
+    animation: slideIn 0.15s ease-out;
+}
+
+
 /* Responsive */
 @media (max-width: 768px){
   .container{ padding:25px; }

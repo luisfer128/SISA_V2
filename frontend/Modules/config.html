@@ -65,10 +65,24 @@
     <div class="config-section">
         <h3>Plantillas de Correo</h3>
         <p>Palabras claves: {nombre_docente}, {detalle_estudiantes}, {nombre_estudiante}, {detalle_materias}, {detalle_docentes}, {detalle_docentes_estudiantes}</p>
-            <div class="template-autoridad">
-                <label for="correo">Correo Autoridad:</label>
-                <input type="email" id="correo" name="correo" placeholder="autoridad@ug.edu.ec" class="inputo-autoridad">
-            </div>
+        
+        <!-- Selector de tipo de plantilla -->
+        <div class="template-type-selector">
+            <label for="template-type-select"><strong>Tipo de Plantilla:</strong></label>
+            <select id="template-type-select">
+                <option value="seguimiento">Seguimiento Académico</option>
+                <option value="nee">Necesidades Especiales</option>
+                <option value="tercera_matricula">Tercera Matrícula</option>
+                <option value="parcial">Control Parcial</option>
+                <option value="final">Control Final</option>
+            </select>
+        </div>
+
+        <div class="template-autoridad">
+            <label for="correo">Correo Autoridad:</label>
+            <input type="email" id="correo" name="correo" placeholder="autoridad@ug.edu.ec" class="inputo-autoridad">
+        </div>
+        
         <div class="email-templates-area">       
             <div class="template-box">
                 <h4>Correo para Autoridad:</h4>
