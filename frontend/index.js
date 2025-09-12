@@ -334,24 +334,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     await saveData('lastPeriodUpdatedAt', new Date().toISOString());
   }
 
-  // ---------- Mostrar información del usuario ----------
-  function displayUserInfo() {
-    const userInfoElement = document.createElement('div');
-    userInfoElement.className = 'user-info';
-    userInfoElement.innerHTML = `
-      <div class="user-details">
-        <h4>Bienvenido: ${currentUser.usuario}</h4>
-        <p>Rol: ${currentUser.rolNombre || 'No definido'}</p>
-        <p>Facultad: ${currentUser.facultadNombre || currentUser.facultadCod || 'No asignada'}</p>
-        ${currentUser.carreraNombre ? `<p>Carrera: ${currentUser.carreraNombre}</p>` : ''}
+  // ---------- Mostrar información en el NAVBAR (reemplaze displayUserInfo) ----------
+  function getInitials(name = '') {
+    try {
+      const parts = name.trim().split(/\s+/);
+      if (!parts.length) return '';
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    } catch { return ''; }
+  }
+  function escapeHtml(str = '') {
+    return String(str).replace(/[&<>"'`]/g, (s) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','`':'&#96;'}[s]));
+  }
+
+  function displayNavbarInfo() {
+    const userInfoContainer = document.getElementById('navbar-userinfo');
+    if (!userInfoContainer || !currentUser) return;
+
+    const name = getUsernameFromUserData(currentUser) || 'Sin nombre';
+    const role = currentUser.rolNombre || 'No definido';
+    const faculty = currentUser.facultadNombre || currentUser.facultadCod || 'No asignada';
+    const initials = getInitials(name);
+
+    userInfoContainer.innerHTML = `
+      <div class="user-block" title="${escapeHtml(name)} — ${escapeHtml(role)}">
+        <div class="avatar" aria-hidden="true">${initials}</div>
+        <div class="user-meta">
+          <div class="user-name">${escapeHtml(name)}</div>
+          <div class="user-tags">
+            <div class="user-sub">${escapeHtml(role)}</div>
+            <div class="user-fac">${escapeHtml(faculty)}</div>
+          </div>
+        </div>
       </div>
     `;
-    
-    // Insertar al inicio del contenedor del menú
-    if (menuContainer) {
-      menuContainer.insertBefore(userInfoElement, menuContainer.firstChild);
+
+    // Conectar botón cerrar sesión
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+      logoutBtn.onclick = async () => {
+        await removeData('isLoggedIn');
+        await removeData('sessionExpiresAt');
+        await removeData('userData');
+        await removeData('modulePermissions');
+        await removeData('currentUserInfo');
+        location.href = 'login.html';
+      };
     }
+    // const fullName = `${currentUser.nombres || ''} ${currentUser.apellidos || ''}`.trim();
+    // const displayName = fullName || currentUser.usuario; // si no hay nombres, muestra el usuario
+
   }
+
+  
 
   // ---------- Menú con validación de permisos ----------
   async function populateMenu() {
@@ -491,20 +526,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       menuGrid.appendChild(el);
     }
-
-    // Botón cerrar sesión
-    const logoutBtn = document.createElement('button');
-    logoutBtn.textContent = 'Cerrar Sesión';
-    logoutBtn.classList.add('logout-button');
-    logoutBtn.onclick = async () => {
-      await removeData('isLoggedIn');
-      await removeData('sessionExpiresAt');
-      await removeData('userData');
-      await removeData('modulePermissions');
-      await removeData('currentUserInfo');
-      location.href = 'login.html';
-    };
-    menuContainer.appendChild(logoutBtn);
+    
   }
 
   async function openAdmin(username) {
@@ -539,7 +561,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (__roleReloading) return;
 
   // Mostrar información del usuario
-  displayUserInfo();
+  displayNavbarInfo();
+
 
   // Cargar plantillas de email
   await ensureEmailTemplates();
