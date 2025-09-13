@@ -234,7 +234,7 @@ async function fetchAndRenderProcessedFiles() {
       processedFilesListDiv.innerHTML = `
         <div style="text-align: center; color: #666; padding: 20px;">
           <i class="fas fa-folder-open" style="font-size: 2em; margin-bottom: 10px; display: block;"></i>
-          No hay archivos en el servidor
+          No hay archivos para su facultad
         </div>
       `;
     }

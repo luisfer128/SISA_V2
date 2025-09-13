@@ -28,7 +28,7 @@
 
 <!-- Modal genérico -->
 <div id="modal-backdrop" class="deny-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title" style="display:none;">
-  <div class="deny-card" style="max-width:560px;">
+  <div class="deny-card">
     <div class="icon" id="modal-icon" style="display:none;"><i class="fa-solid fa-circle-info"></i></div>
     <h3 id="modal-title">Título</h3>
     <p id="modal-message">Mensaje…</p>
@@ -69,6 +69,12 @@
       <button id="refreshUsersBtn" class="action-button">
         <i class="fa-solid fa-rotate"></i> Actualizar lista
       </button>
+      <button id="manageFacultiesBtn" class="action-button">
+        <i class="fa-solid fa-building-columns"></i> Gestionar Facultades
+      </button>
+      <button id="manageCareersBtn" class="action-button">
+        <i class="fa-solid fa-graduation-cap"></i> Gestionar Carreras
+      </button>
     </div>
 
     <!-- Métricas rápidas -->
@@ -99,25 +105,37 @@
     <!-- Alta / edición de usuario -->
     <div class="config-section">
       <h3>Gestión de Usuarios</h3>
-      <p>Crear nuevos usuarios o actualizar su rol y estado.</p>
+      <p>Crear nuevos usuarios o actualizar su información, rol y estado.</p>
 
       <div class="form-grid">
         <div class="form-field">
-          <label for="usuario-input">Usuario</label>
-          <input id="usuario-input" type="text" placeholder="usuario@dominio.com / identificador">
+          <label for="usuario-input">Usuario / Email *</label>
+          <input id="usuario-input" type="email" placeholder="usuario@dominio.com">
         </div>
         <div class="form-field">
-          <label for="rol-select">Rol</label>
+          <label for="rol-select">Rol *</label>
           <select id="rol-select">
-            <option value="usuario">usuario</option>
-            <option value="admin">admin</option>
+            <option value="operador">Operador</option>
+            <option value="admin">Administrador</option>
           </select>
         </div>
         <div class="form-field">
-          <label for="activo-check">Activo</label>
+          <label for="facultad-select">Facultad *</label>
+          <select id="facultad-select">
+            <option value="">Seleccione una facultad</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="carrera-select">Carrera</label>
+          <select id="carrera-select" disabled>
+            <option value="">Todas las carreras</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="activo-check">Estado</label>
           <div style="display:flex;align-items:center;gap:8px;">
             <input id="activo-check" type="checkbox" checked>
-            <span id="activo-label">Sí</span>
+            <span id="activo-label">Activo</span>
           </div>
         </div>
         <div class="form-field" style="align-self:end;">
@@ -135,6 +153,12 @@
           <i class="fa-solid fa-eraser"></i> Limpiar formulario
         </button>
       </div>
+      
+      <div>
+        <i class="fa-solid fa-info-circle"></i> 
+        <strong>Campos obligatorios:</strong> Usuario y Facultad son requeridos. 
+        La carrera es opcional (si no se selecciona, el usuario tendrá acceso a toda la facultad).
+      </div>
     </div>
 
     <!-- Filtros -->
@@ -150,7 +174,7 @@
           <select id="filterRol">
             <option value="">Todos</option>
             <option value="admin">admin</option>
-            <option value="usuario">usuario</option>
+            <option value="operador">operador</option>
           </select>
         </div>
         <div class="filter-field">
@@ -179,11 +203,13 @@
         <table class="admin-table" id="usersTable">
           <thead>
             <tr>
-              <th style="width:80px;">ID</th>
+              <th style="width:60px;">ID</th>
               <th>Usuario</th>
-              <th style="width:140px;">Rol</th>
-              <th style="width:120px;">Activo</th>
-              <th style="width:220px;">Acciones</th>
+              <th style="width:120px;">Rol</th>
+              <th style="width:80px;">Estado</th>
+              <th style="width:80px;">Facultad</th>
+              <th style="width:80px;">Carrera</th>
+              <th style="width:200px;">Acciones</th>
             </tr>
           </thead>
           <tbody id="usersTbody">
@@ -234,11 +260,11 @@
         window.location.href = '../index.html';
       });
 
-      // Etiqueta Sí/No del checkbox activo
+      // Etiqueta Activo/Inactivo del checkbox
       const activoCheck = document.getElementById('activo-check');
       const activoLabel = document.getElementById('activo-label');
       activoCheck?.addEventListener('change', () => {
-        activoLabel.textContent = activoCheck.checked ? 'Sí' : 'No';
+        activoLabel.textContent = activoCheck.checked ? 'Activo' : 'Inactivo';
       });
 
       // Quitar transición bloqueada cuando ya montó el DOM

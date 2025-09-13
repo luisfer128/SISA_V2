@@ -844,6 +844,328 @@ def admin_panel():
         print(f"❌ Error in admin_panel: {e}")
         return jsonify({"error": "Error interno del servidor"}), 500
 
+
+# ======================= GESTIÓN DE FACULTADES ===========================
+@app.post('/api/facultades')
+@require_login
+@require_role('admin')
+def create_facultad():
+    """Crear nueva facultad - Solo admin"""
+    try:
+        data = request.get_json(silent=True) or {}
+        codigo = (data.get("codigo") or "").strip().upper()
+        nombre = (data.get("nombre") or "").strip()
+
+        if not codigo or not nombre:
+            return jsonify({"error": "Código y nombre son obligatorios"}), 400
+
+        # Verificar que no exista
+        conn = conectar()
+        cur = conn.cursor()
+        cur.execute("SELECT FacultadCod FROM Facultad WHERE FacultadCod = ?", (codigo,))
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": f"La facultad con código '{codigo}' ya existe"}), 409
+
+        # Crear facultad
+        cur.execute("INSERT INTO Facultad (FacultadCod, Nombre) VALUES (?, ?)", (codigo, nombre))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"✅ Facultad creada: {codigo} - {nombre}")
+        return jsonify({
+            "message": "Facultad creada exitosamente",
+            "data": {"codigo": codigo, "nombre": nombre}
+        }), 201
+
+    except Exception as e:
+        print(f"❌ Error creating facultad: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.put('/api/facultades/<string:facultad_cod>')
+@require_login
+@require_role('admin')
+def update_facultad(facultad_cod):
+    """Actualizar facultad existente"""
+    try:
+        data = request.get_json(silent=True) or {}
+        nuevo_codigo = (data.get("codigo") or "").strip().upper()
+        nuevo_nombre = (data.get("nombre") or "").strip()
+
+        if not nuevo_codigo or not nuevo_nombre:
+            return jsonify({"error": "Código y nombre son obligatorios"}), 400
+
+        print(f"🔄 Updating facultad: {facultad_cod} -> {nuevo_codigo}, {nuevo_nombre}")
+
+        conn = conectar()
+        cur = conn.cursor()
+
+        # Verificar que la facultad existe
+        cur.execute("SELECT FacultadCod, Nombre FROM Facultad WHERE FacultadCod = ?", (facultad_cod,))
+        facultad_actual = cur.fetchone()
+        if not facultad_actual:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Facultad no encontrada"}), 404
+
+        print(f"📋 Current facultad: {facultad_actual}")
+
+        # Si el código cambió, verificar que el nuevo no exista (excluyendo el actual)
+        if nuevo_codigo != facultad_cod:
+            cur.execute("SELECT FacultadCod FROM Facultad WHERE FacultadCod = ? AND FacultadCod != ?", (nuevo_codigo, facultad_cod))
+            if cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({"error": f"Ya existe una facultad con código '{nuevo_codigo}'"}), 409
+
+        # Actualizar facultad
+        cur.execute("""
+            UPDATE Facultad 
+            SET FacultadCod = ?, Nombre = ? 
+            WHERE FacultadCod = ?
+        """, (nuevo_codigo, nuevo_nombre, facultad_cod))
+
+        # Si cambió el código, actualizar referencias en otras tablas
+        if nuevo_codigo != facultad_cod:
+            print(f"🔄 Updating references: {facultad_cod} -> {nuevo_codigo}")
+            cur.execute("UPDATE Usuarios SET FacultadCod = ? WHERE FacultadCod = ?", (nuevo_codigo, facultad_cod))
+            cur.execute("UPDATE Carrera SET FacultadCod = ? WHERE FacultadCod = ?", (nuevo_codigo, facultad_cod))
+            cur.execute("UPDATE ArchivosExcel SET FacultadCod = ? WHERE FacultadCod = ?", (nuevo_codigo, facultad_cod))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"✅ Facultad actualizada: {facultad_cod} -> {nuevo_codigo} - {nuevo_nombre}")
+        return jsonify({
+            "message": "Facultad actualizada exitosamente",
+            "data": {"codigo": nuevo_codigo, "nombre": nuevo_nombre}
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Error updating facultad: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.delete('/api/facultades/<string:facultad_cod>')
+@require_login
+@require_role('admin')
+def delete_facultad(facultad_cod):
+    """Eliminar facultad - Solo admin"""
+    try:
+        conn = conectar()
+        cur = conn.cursor()
+
+        # Verificar que la facultad existe
+        cur.execute("SELECT Nombre FROM Facultad WHERE FacultadCod = ?", (facultad_cod,))
+        facultad = cur.fetchone()
+        if not facultad:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Facultad no encontrada"}), 404
+
+        # Verificar si hay usuarios asociados
+        cur.execute("SELECT COUNT(*) FROM Usuarios WHERE FacultadCod = ?", (facultad_cod,))
+        usuarios_count = cur.fetchone()[0]
+
+        # Verificar si hay carreras asociadas
+        cur.execute("SELECT COUNT(*) FROM Carrera WHERE FacultadCod = ?", (facultad_cod,))
+        carreras_count = cur.fetchone()[0]
+
+        # Verificar si hay archivos asociados
+        cur.execute("SELECT COUNT(*) FROM ArchivosExcel WHERE FacultadCod = ?", (facultad_cod,))
+        archivos_count = cur.fetchone()[0]
+
+        if usuarios_count > 0 or carreras_count > 0 or archivos_count > 0:
+            cur.close()
+            conn.close()
+            return jsonify({
+                "error": f"No se puede eliminar la facultad '{facultad[0]}' porque tiene datos asociados",
+                "details": {
+                    "usuarios": usuarios_count,
+                    "carreras": carreras_count,
+                    "archivos": archivos_count
+                }
+            }), 409
+
+        # Eliminar facultad
+        cur.execute("DELETE FROM Facultad WHERE FacultadCod = ?", (facultad_cod,))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"✅ Facultad eliminada: {facultad_cod} - {facultad[0]}")
+        return jsonify({"message": f"Facultad '{facultad[0]}' eliminada exitosamente"}), 200
+
+    except Exception as e:
+        print(f"❌ Error deleting facultad: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+# ======================= GESTIÓN DE CARRERAS ===========================
+@app.post('/api/carreras')
+@require_login
+@require_role('admin')
+def create_carrera():
+    """Crear nueva carrera - Solo admin"""
+    try:
+        data = request.get_json(silent=True) or {}
+        codigo = (data.get("codigo") or "").strip().upper()
+        nombre = (data.get("nombre") or "").strip()
+        facultad_cod = (data.get("facultadCod") or "").strip().upper()
+
+        if not codigo or not nombre or not facultad_cod:
+            return jsonify({"error": "Código, nombre y facultad son obligatorios"}), 400
+
+
+        conn = conectar()
+        cur = conn.cursor()
+
+        # Verificar que la facultad existe
+        cur.execute("SELECT Nombre FROM Facultad WHERE FacultadCod = ?", (facultad_cod,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": f"La facultad '{facultad_cod}' no existe"}), 404
+
+        # Verificar que no exista la carrera
+        cur.execute("SELECT CarreraCod FROM Carrera WHERE CarreraCod = ?", (codigo,))
+        if cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": f"La carrera con código '{codigo}' ya existe"}), 409
+
+        # Crear carrera
+        cur.execute("""
+            INSERT INTO Carrera (CarreraCod, FacultadCod, Nombre) 
+            VALUES (?, ?, ?)
+        """, (codigo, facultad_cod, nombre))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"✅ Carrera creada: {codigo} - {nombre} (Facultad: {facultad_cod})")
+        return jsonify({
+            "message": "Carrera creada exitosamente",
+            "data": {"codigo": codigo, "nombre": nombre, "facultadCod": facultad_cod}
+        }), 201
+
+    except Exception as e:
+        print(f"❌ Error creating carrera: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.put('/api/carreras/<string:carrera_cod>')
+@require_login
+@require_role('admin')
+def update_carrera(carrera_cod):
+    """Actualizar carrera existente"""
+    try:
+        data = request.get_json(silent=True) or {}
+        nuevo_codigo = (data.get("codigo") or "").strip().upper()
+        nuevo_nombre = (data.get("nombre") or "").strip()
+        nueva_facultad_cod = (data.get("facultadCod") or "").strip().upper()
+
+        if not nuevo_codigo or not nuevo_nombre or not nueva_facultad_cod:
+            return jsonify({"error": "Código, nombre y facultad son obligatorios"}), 400
+
+
+        conn = conectar()
+        cur = conn.cursor()
+
+        # Verificar que la carrera existe
+        cur.execute("SELECT CarreraCod FROM Carrera WHERE CarreraCod = ?", (carrera_cod,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Carrera no encontrada"}), 404
+
+        # Verificar que la facultad existe
+        cur.execute("SELECT Nombre FROM Facultad WHERE FacultadCod = ?", (nueva_facultad_cod,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": f"La facultad '{nueva_facultad_cod}' no existe"}), 404
+
+        # Si el código cambió, verificar que el nuevo no exista
+        if nuevo_codigo != carrera_cod:
+            cur.execute("SELECT CarreraCod FROM Carrera WHERE CarreraCod = ?", (nuevo_codigo,))
+            if cur.fetchone():
+                cur.close()
+                conn.close()
+                return jsonify({"error": f"Ya existe una carrera con código '{nuevo_codigo}'"}), 409
+
+        # Actualizar carrera
+        cur.execute("""
+            UPDATE Carrera 
+            SET CarreraCod = ?, Nombre = ?, FacultadCod = ? 
+            WHERE CarreraCod = ?
+        """, (nuevo_codigo, nuevo_nombre, nueva_facultad_cod, carrera_cod))
+
+        # Si cambió el código, actualizar referencias en usuarios
+        if nuevo_codigo != carrera_cod:
+            cur.execute("UPDATE Usuarios SET CarreraCod = ? WHERE CarreraCod = ?", (nuevo_codigo, carrera_cod))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"✅ Carrera actualizada: {carrera_cod} -> {nuevo_codigo} - {nuevo_nombre}")
+        return jsonify({
+            "message": "Carrera actualizada exitosamente",
+            "data": {"codigo": nuevo_codigo, "nombre": nuevo_nombre, "facultadCod": nueva_facultad_cod}
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Error updating carrera: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.delete('/api/carreras/<string:carrera_cod>')
+@require_login
+@require_role('admin')
+def delete_carrera(carrera_cod):
+    """Eliminar carrera - Solo admin"""
+    try:
+        conn = conectar()
+        cur = conn.cursor()
+
+        # Verificar que la carrera existe
+        cur.execute("SELECT Nombre FROM Carrera WHERE CarreraCod = ?", (carrera_cod,))
+        carrera = cur.fetchone()
+        if not carrera:
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Carrera no encontrada"}), 404
+
+        # Verificar si hay usuarios asociados
+        cur.execute("SELECT COUNT(*) FROM Usuarios WHERE CarreraCod = ?", (carrera_cod,))
+        usuarios_count = cur.fetchone()[0]
+
+        if usuarios_count > 0:
+            cur.close()
+            conn.close()
+            return jsonify({
+                "error": f"No se puede eliminar la carrera '{carrera[0]}' porque tiene {usuarios_count} usuario(s) asociado(s)"
+            }), 409
+
+        # Eliminar carrera
+        cur.execute("DELETE FROM Carrera WHERE CarreraCod = ?", (carrera_cod,))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        print(f"✅ Carrera eliminada: {carrera_cod} - {carrera[0]}")
+        return jsonify({"message": f"Carrera '{carrera[0]}' eliminada exitosamente"}), 200
+
+    except Exception as e:
+        print(f"❌ Error deleting carrera: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 # ======================= MAIN ===========================
 if __name__ == '__main__':
     port = int(os.getenv("PORT", "5000"))
