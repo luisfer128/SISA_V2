@@ -1,4 +1,8 @@
-/* ======= Variables modo claro (por defecto) ======= */
+/* =========================================================
+   VARIABLES DE TEMA
+   ========================================================= */
+
+/* ======= Claro (por defecto) ======= */
 :root {
   --bg: #f3f4f6;
   --card-bg: #ffffff;
@@ -16,7 +20,7 @@
   --radius: 14px;
 }
 
-/* ======= Oscuro (se aplica si <html> o <body> tiene .dark-mode) ======= */
+/* ======= Oscuro ======= */
 .dark-mode {
   --bg: #0b1220;
   --card-bg: #111827;
@@ -33,18 +37,16 @@
   --shadow-hover: 0 12px 24px rgba(0,0,0,.35);
 }
 
-/* Bloquea transiciones en el primer paint para evitar "flash" */
+/* Bloquea transiciones en el primer paint */
 .no-theme-transitions, .no-theme-transitions * {
   transition: none !important;
 }
 
-/* ======= Reset y base ======= */
-* {
-  box-sizing: border-box;
-}
-html, body {
-  height: 100%;
-}
+/* =========================================================
+   RESET Y BASE
+   ========================================================= */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
 body {
   margin: 0;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -53,7 +55,10 @@ body {
   line-height: 1.4;
   transition: background 0.3s ease, color 0.3s ease;
 }
-/* ---------- NAVBAR: minimal & profesional ---------- */
+
+/* =========================================================
+   NAVBAR
+   ========================================================= */
 .navbar {
   display: flex;
   align-items: center;
@@ -77,64 +82,37 @@ body {
   text-decoration: none;
   color: inherit;
 }
-
-.brand-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  color: #fff;
-  font-weight: 700;
-  font-size: 1rem;
-  box-shadow: 0 3px 8px rgba(16,24,40,0.08);
-}
-
 .brand-text {
+  font-family: 'Oswald', sans-serif;
   font-size: 1.8rem;
-  font-weight: 700;
+  font-weight: 800;
   background: linear-gradient(45deg, #3498db, #2ecc71);
+  background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   letter-spacing: 4px;
   margin: 0;
   transition: transform 0.3s ease;
-}
+  animation: gradient-rotate 7s ease infinite;
 
-.brand-text:hover {
-  transform: scale(1.05);
 }
+.brand-text:hover { transform: scale(1.05); }
 
-.user-tags {
-  display: flex;
-  flex-wrap: wrap; 
-  gap: 6px;
-  margin-top: 4px;
+@keyframes gradient-rotate {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
-
-.user-sub, .user-fac{
-  padding: 3px 8px;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  display: flex;
-  color: #fff; 
-  white-space: nowrap;
-  line-height: 1.2;
-}
-
-.user-fac{
-  background: rgba(46, 204, 113, 0.8);
-}
-
-.user-sub{
-  background: rgba(52, 152, 219, 0.8);
-}
-
-/* Center: user info */
+/* =========================================================
+   USUARIO EN NAVBAR
+   ========================================================= */
 .navbar-center {
   flex: 1;
   display: flex;
@@ -146,7 +124,6 @@ body {
   display: inline-flex;
   gap: 12px;
   align-items: center;
-  background: transparent;
   padding: 6px 10px;
   border-radius: 10px;
 }
@@ -163,9 +140,7 @@ body {
   font-size: 0.95rem;
   box-shadow: 0 3px 8px rgba(16,24,40,0.08);
 }
-.user-meta {
-  min-width: 0;
-}
+.user-meta { min-width: 0; }
 .user-name {
   font-weight: 600;
   font-size: 0.98rem;
@@ -173,18 +148,37 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.user-tags {
+  display: flex;
+  flex-wrap: wrap; 
+  gap: 6px;
+  margin-top: 4px;
+}
+.user-sub, .user-fac {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  display: flex;
+  color: #fff; 
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.user-fac { background: rgba(46, 204, 113, 0.8); }
+.user-sub { background: rgba(52, 152, 219, 0.8); }
 
-/* Right side: controls */
+/* =========================================================
+   NAVBAR - BOTONES DERECHA
+   ========================================================= */
 .navbar-right {
   display: flex;
   gap: 8px;
   align-items: center;
 }
-
 .nav-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px; /* espacio entre icono y texto */
+  gap: 6px;
   padding: 6px 12px;
   border-radius: 8px;
   color: var(--navbar-text);
@@ -193,25 +187,36 @@ body {
   text-decoration: none;
   transition: background 0.2s ease, transform 0.15s ease;
 }
-
 .nav-btn:hover {
   background: rgba(255, 255, 255, 0.12);
   transform: translateY(-2px);
 }
+.nav-btn i { font-size: 1.1rem; }
 
-.nav-btn i {
-  font-size: 1.1rem; /* tamaño icono */
+.nav-logout {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--danger);
+  border: 1px solid transparent;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.12s ease;
+}
+.nav-logout:hover {
+  background: var(--danger-strong);
+  transform: translateY(-2px);
 }
 
-
-/* ======= Contenedor principal ======= */
+/* =========================================================
+   CONTENEDOR PRINCIPAL Y MENÚ
+   ========================================================= */
 .menu-container {
   margin: 3px auto;
   max-width: 1040px;
   padding: 28px;
   background: transparent;
 }
-
 .menu-container h2 {
   text-align: center;
   margin: 0 0 28px;
@@ -221,38 +226,31 @@ body {
   transition: color 0.3s ease;
 }
 
-/* ======= Grid de apps ======= */
 .menu-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 18px;
 }
 
-/* ======= Tarjeta ======= */
 .menu-item {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 10px;
-
   background: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: var(--radius);
   padding: 20px 18px;
   text-decoration: none;
   color: var(--text);
-
   box-shadow: var(--shadow);
   transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background 0.3s ease, color 0.3s ease;
 }
-
 .menu-item:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-hover);
   border-color: rgba(99,102,241,.25);
 }
-
-/* ======= Icono ======= */
 .menu-item i {
   font-size: 40px;
   margin: 6px 0 4px;
@@ -263,8 +261,6 @@ body {
   transform: scale(1.06);
   color: var(--accent-strong);
 }
-
-/* ======= Título y descripción ======= */
 .menu-item h3 {
   margin: 2px 0 2px;
   font-size: 1.1rem;
@@ -276,14 +272,14 @@ body {
   color: var(--muted);
   text-align: center;
 }
-
-/* ======= Accesibilidad ======= */
 .menu-item:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
 
-/* ======= Botón salir ======= */
+/* =========================================================
+   BOTONES Y ELEMENTOS EXTRAS
+   ========================================================= */
 .logout-button {
   margin-top: 22px;
   background: var(--danger);
@@ -308,34 +304,9 @@ body {
   outline-offset: 3px;
 }
 
-
-
-
-.nav-logout {
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--danger);
-  border: 1px solid transparent;
-  border: 1px solid transparent;
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.18s ease, color 0.18s ease, transform 0.12s ease;
-}
-.nav-logout:hover {
-  background: var(--danger);
-  color: #fff;
-  transform: translateY(-2px);
-}
-.nav-logout:focus-visible,
-.theme-toggle:focus-visible,
-.brand:focus-visible {
-  outline: 3px solid rgba(59,130,246,0.18); /* subtle focus */
-  outline-offset: 4px;
-}
-
-
-/* ======= Overlay de carga ======= */
+/* =========================================================
+   OVERLAY DE CARGA
+   ========================================================= */
 .loading-overlay {
   position: fixed;
   inset: 0;
@@ -360,7 +331,9 @@ body {
   transition: background 0.3s ease, border-color 0.3s ease;
 }
 
-/* ==== BOTÓN MODO OSCURO/CLARO ==== */
+/* =========================================================
+   BOTÓN MODO OSCURO/CLARO (flotante)
+   ========================================================= */
 #theme-toggle {
   position: fixed;
   bottom: 20px;
@@ -368,7 +341,7 @@ body {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  border: 2px solid var(--accent); /* Borde visible */
+  border: 2px solid var(--accent);
   background: var(--card-bg);
   color: var(--accent);
   font-size: 1.5rem;
@@ -381,50 +354,20 @@ body {
   transition: background 0.3s ease, color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
   z-index: 10000;
 }
-
 #theme-toggle:hover {
   transform: scale(1.1);
   background: var(--accent);
-  color: #fff; /* Contraste máximo en hover */
+  color: #fff;
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35), 0 0 10px var(--accent);
 }
-
 #theme-toggle:focus-visible {
   outline: 3px solid var(--accent-strong);
   outline-offset: 4px;
 }
 
-/* Información del usuario */
-.user-info {
-  background: var(--card-bg-light);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-  box-shadow: 0 4px 12px var(--shadow-light);
-  transition: all 0.3s ease;
-}
-
-.user-info:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 25px var(--shadow-light);
-}
-
-.user-details h4 {
-  color: var(--primary-color);
-  margin-bottom: 0.5rem;
-  font-size: 1.2rem;
-  font-weight: 600;
-}
-
-.user-details p {
-  margin-bottom: 0.25rem;
-  color: var(--text-light);
-  opacity: 0.8;
-  font-size: 0.9rem;
-}
-
-/* ======= Animaciones reducidas ======= */
+/* =========================================================
+   ACCESIBILIDAD Y ANIMACIONES
+   ========================================================= */
 @media (prefers-reduced-motion: reduce) {
   .menu-item,
   .menu-item i,

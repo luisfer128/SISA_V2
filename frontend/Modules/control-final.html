@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Control Final</title>
   <link rel="stylesheet" href="../styles/tables.css">
-  <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
@@ -18,6 +17,8 @@
   </script>
 </head>
 <body>
+  <div id="navbar-container"></div>
+  <script src="../navbar.js" type="module"></script>
   <div class="container">
     <div class="header">
       <div class="filter-section">
@@ -33,7 +34,7 @@
         <span id="total-materia" class="total-students">Total de Materias: 0</span>
         <span id="total-students" class="total-students">Total de Estudiantes: 0</span>
       </div>
-      <div style="margin-left: -120px;">
+      <div>
         <span id="estado-resumen" style="font-weight: bold;"></span>
       </div>   
       <div class="button-group">

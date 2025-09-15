@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Seguimiento Académico</title>
   <link rel="stylesheet" href="../styles/tables.css">
-  <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
   <script>
@@ -18,19 +17,42 @@
   </script>
 </head>
 <body>
+  <div id="navbar-container"></div>
+  <script src="../navbar.js" type="module"></script>
   <div class="container">
     <div class="header">
-      <div class="filter-section">
-        <label for="filter-input">Filtrar:</label>
-        <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
+      <!-- Título -->
+      <h2 class="title">Seguimiento Académico</h2>
+      <!-- Periodo actual -->
+      <div class="period-select">
+        <label for="periodDropdown">Periodo:</label>
+        <select id="periodDropdown">
+          <option value="2025-1">2025-C1</option>
+          <option value="2024-2">2024-C2</option>
+          <option value="2024-1">2024-C1</option>
+        </select>
       </div>
       <span id="current-period-label" class="period-label"></span>
-      <h2 class="title">Seguimiento Académico</h2>
+      <!-- Descripción -->
       <div class="description-legend">
         Notificaciones a docente y estudiantes por 2da y 3era vez registrados
       </div>
-      <span id="total-students" class="total-students">Total de Estudiantes: 0</span>
-      
+      <!-- Estadísticas -->
+      <div class="stats-container">
+        <span class="total-students" id="total-students">Total Estudiantes: 0</span>
+        <span class="stat-number" id="stat-riesgo-5">Riesgo Muy Alto (5+): 0</span>
+        <span class="stat-number" id="stat-riesgo-4">Riesgo Alto (4): 0</span>
+        <span class="stat-number" id="stat-riesgo-3">Riesgo Medio (3): 0</span>
+        <span class="stat-number" id="stat-riesgo-2">Riesgo Bajo (2): 0</span>
+        <span class="stat-number" id="stat-riesgo-1">Sin Riesgo (1): 0</span>
+      </div>
+      <!-- Filtro -->
+      <div class="filter-section">
+        <label for="filter-input">Filtrar:</label>
+        <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
+        
+      </div>
+      <!-- Botones -->
       <div class="button-group">
         <button id="sendAcademicEmails" class="action-button">Enviar Correos</button>
         <button id="goToMenuButton" class="action-button secondary-button">Ir a Menú</button>

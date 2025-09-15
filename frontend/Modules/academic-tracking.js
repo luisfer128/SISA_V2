@@ -182,51 +182,73 @@ document.addEventListener('DOMContentLoaded', () => {
 
   /* ========= Render tabla ========= */
   function renderTable(students) {
-    tableBody.innerHTML = '';
+  tableBody.innerHTML = '';
 
-    students.forEach(student => {
-      const row = document.createElement('tr');
+  // Contadores de riesgos
+  const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
 
-      row.insertCell().textContent = student.Identificación || '';
-      row.insertCell().textContent = student.Estudiante || '';
-      row.insertCell().textContent = student.Correo || '';
-      row.insertCell().textContent = student.NEE || '';
-      row.insertCell().textContent = student.Nivel || '';
+  students.forEach(student => {
+    const row = document.createElement('tr');
 
-      const vezCell = row.insertCell();
-      const vezList = document.createElement('ul');
-      (student["[Vez] Materia (Docente)"] || []).forEach(item => {
-        const li = document.createElement('li');
-        li.textContent = item;
-        vezList.appendChild(li);
-      });
-      vezCell.appendChild(vezList);
+    row.insertCell().textContent = student.Identificación || '';
+    row.insertCell().textContent = student.Estudiante || '';
+    row.insertCell().textContent = student.Correo || '';
+    row.insertCell().textContent = student.NEE || '';
+    row.insertCell().textContent = student.Nivel || '';
 
-      const riesgoCell = row.insertCell();
-      const riesgoDiv = document.createElement('div');
-      riesgoDiv.className = 'riesgo-bar-container';
-
-      const progreso = document.createElement('div');
-      progreso.className = 'riesgo-bar';
-      const cantidad = (student["[Vez] Materia (Docente)"] || []).length;
-      const porcentaje = Math.min(cantidad * 20, 100);
-      progreso.style.width = `${porcentaje}%`;
-      progreso.style.backgroundColor = getRiesgoColor(cantidad);
-      riesgoDiv.appendChild(progreso);
-      riesgoCell.appendChild(riesgoDiv);
-
-      const enviarCell = row.insertCell();
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = true;
-      checkbox.dataset.studentId = student.Identificación;
-      enviarCell.appendChild(checkbox);
-
-      tableBody.appendChild(row);
+    const vezCell = row.insertCell();
+    const vezList = document.createElement('ul');
+    (student["[Vez] Materia (Docente)"] || []).forEach(item => {
+      const li = document.createElement('li');
+      li.textContent = item;
+      vezList.appendChild(li);
     });
+    vezCell.appendChild(vezList);
 
-    totalStudentsSpan.textContent = `Total de Estudiantes: ${students.length}`;
-  }
+    // Calcular cantidad de materias repetidas
+    const cantidad = (student["[Vez] Materia (Docente)"] || []).length;
+
+    // === Aquí actualizamos los contadores de riesgos ===
+    if (cantidad >= 5) counts[5]++;
+    else if (cantidad === 4) counts[4]++;
+    else if (cantidad === 3) counts[3]++;
+    else if (cantidad === 2) counts[2]++;
+    else counts[1]++;
+
+    // Columna de barra de riesgo
+    const riesgoCell = row.insertCell();
+    const riesgoDiv = document.createElement('div');
+    riesgoDiv.className = 'riesgo-bar-container';
+
+    const progreso = document.createElement('div');
+    progreso.className = 'riesgo-bar';
+    const porcentaje = Math.min(cantidad * 20, 100);
+    progreso.style.width = `${porcentaje}%`;
+    progreso.style.backgroundColor = getRiesgoColor(cantidad);
+    riesgoDiv.appendChild(progreso);
+    riesgoCell.appendChild(riesgoDiv);
+
+    const enviarCell = row.insertCell();
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = true;
+    checkbox.dataset.studentId = student.Identificación;
+    enviarCell.appendChild(checkbox);
+
+    tableBody.appendChild(row);
+  });
+
+  // Actualizar total estudiantes
+  totalStudentsSpan.textContent = `Total Estudiantes: ${students.length}`;
+
+  // === Actualizar estadísticas en los spans ===
+  document.getElementById('stat-riesgo-5').textContent = `Riesgo Muy Alto (5+): ${counts[5]}`;
+  document.getElementById('stat-riesgo-4').textContent = `Riesgo Alto (4): ${counts[4]}`;
+  document.getElementById('stat-riesgo-3').textContent = `Riesgo Medio (3): ${counts[3]}`;
+  document.getElementById('stat-riesgo-2').textContent = `Riesgo Bajo (2): ${counts[2]}`;
+  document.getElementById('stat-riesgo-1').textContent = `Sin Riesgo (1): ${counts[1]}`;
+}
+
 
   /* ========= Carga robusta NEE (con fallbacks y normalización) ========= */
   async function loadNEEMap() {

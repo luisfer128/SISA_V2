@@ -10,20 +10,18 @@ body {
   background: linear-gradient(to right, #0ea5e9, #1d4ed8);
   color: #000;
   line-height: 1.5;
+  min-height: 100vh;
+  /* NO display: flex para evitar conflictos */
 }
 
 /* Contenedor principal */
-.container, .container {
-  padding: 20px;
+.container {
+  position: relative;
+  margin: 20px auto; /* Centrado normal */
+  max-width: 1200px;
+  padding: 28px;
   background: linear-gradient(120deg, #e6eef6 0%, #ffffff 100%);
   border-radius: 8px;
-  max-width: 1200px;
-  margin-left: auto;
-  margin-right: auto;
-  margin-top: 30px;
-  margin-bottom: 0;
-  position: relative;
-  top: 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
@@ -48,16 +46,109 @@ body {
 .title {
   flex: 1 1 100%;
   text-align: center;
-  font-size: 26px;
+  font-size: 2rem;
   font-weight: bold;
   color: #1e40af;
+  order: 1;
 }
 
+.description-legend {
+  text-align: center;
+  margin: 0.2rem 0 1rem 0;
+  font-size: 1rem;
+  color: #6c757d;
+  line-height: 1.3;
+  width: 100%;
+  order: 2;
+}
+/* Periodo arriba a la derecha */
 .period-label {
   font-weight: bold;
-  color: #475569;
+  color: #3a3e42;
+  font-size: 14px;
+  padding: 4px 8px;
+  
+  border-radius: 6px;
+}
+/* Contenedor del combobox de periodo */
+.period-select {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin-top: 17px; /*Provicional*/
+  border-radius: 6px;
+  font-size: 14px;
+}
+/* .period-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+} */
+.period-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
+.period-select label {
+  font-weight: 500;
+  color: #374151;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+#periodDropdown {
+  position: relative;
+  padding: 8px 35px 8px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #374151;
+  background: #ffffff;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  background-position: right 8px center;
+  background-repeat: no-repeat;
+  background-size: 16px;
+  appearance: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 120px;
+}
+
+#periodDropdown:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 6px rgba(37, 99, 235, 0.4);
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%232563eb' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+}
+
+#periodDropdown:hover {
+  border-color: #94a3b8;
+  background-color: #f8fafc;
+}
+
+#periodDropdown option {
+  padding: 10px;
+  background: #ffffff;
+  color: #374151;
+  font-weight: 500;
+}
+/* Estadísticas debajo de la descripción */
+.stats-container, #estado-resumen {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 10px 0 20px 0;
+  flex-wrap: wrap;
+  order: 3;
+}
+
+/* Total estudiantes */
 .total-students {
   font-weight: bold;
   color: #1e3a8a;
@@ -66,6 +157,62 @@ body {
   border-radius: 20px;
   font-size: 14px;
   border: 2px solid #1d4ed8;
+  order: 4;
+}
+
+/* Riesgo Muy Alto (5+) */
+#stat-riesgo-5 {
+  font-weight: bold;
+  color: #fff;
+  background: #d93025; /* rojo fuerte */
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  border: 2px solid #b91c1c;
+}
+
+/* Riesgo Alto (4) */
+#stat-riesgo-4 {
+  font-weight: bold;
+  color: #fff;
+  background: #f57c00; /* naranja */
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  border: 2px solid #c2410c;
+}
+
+/* Riesgo Medio (3) */
+#stat-riesgo-3 {
+  font-weight: bold;
+  color: #000;
+  background: #fbc02d; /* amarillo */
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  border: 2px solid #ca8a04;
+}
+
+/* Riesgo Bajo (2) */
+#stat-riesgo-2 {
+  font-weight: bold;
+  color: #000;
+  background: #7cb342; /* verde medio */
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  border: 2px solid #15803d;
+}
+
+/* Sin Riesgo (1) */
+#stat-riesgo-1 {
+  font-weight: bold;
+  color: #000;
+  background: #4caf50; /* verde claro */
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 14px;
+  border: 2px solid #166534;
 }
 
 /* Filtro */
@@ -73,6 +220,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  order: 5;
 }
 
 .filter-section label {
@@ -98,6 +246,7 @@ body {
 .button-group {
   display: flex;
   gap: 10px;
+  order: 6;
 }
 
 .action-button {
@@ -133,6 +282,7 @@ body {
   font-size: 13px;
   overflow: hidden;
   border-radius: 8px;
+  margin-top: 20px;
 }
 
 #academic-tracking-table thead {
@@ -175,7 +325,7 @@ td input[type="checkbox"] {
 /* Listas dentro de las celdas */
 td ul {
   list-style: disc;
-  padding-left: 18px; /* espacio para el bullet */
+  padding-left: 18px;
   margin: 0;
 }
 
@@ -186,93 +336,147 @@ td li {
 }
 
 td li::before {
-  content: none; /* eliminar el guion personalizado */
+  content: none;
 }
 
-.container {
-  position: absolute;
-  left: 50px;
-  right: 50px;
-  margin-top: 30px;
-  margin-bottom: 30px;
-  max-width: calc(100vw - 100px);
-}
-
-/* ===== Modo oscuro (sin tocar el diseño) ===== */
+/* ===== Modo oscuro ===== */
 html.dark-mode body,
 body.dark-mode {
   background: linear-gradient(to right, #0b1220, #0b1220);
   color: #e5e7eb;
 }
 
-/* Contenedor */
 .dark-mode .container {
   background: #111827;
   border: 1px solid #1f2937;
   box-shadow: 0 10px 28px rgba(0,0,0,.35);
 }
 
-/* Encabezado */
-.dark-mode .header { border-bottom: 2px solid #1f2937; }
-.dark-mode .title { color: #93c5fd; }
-.dark-mode .period-label { color: #9ca3af; }
+.dark-mode .header { 
+  border-bottom: 2px solid #1f2937; 
+}
+
+.dark-mode .title { 
+  color: #93c5fd; 
+}
+
+.dark-mode .period-label { 
+  color: #9ca3af; 
+}
+
 .dark-mode .total-students {
   color: #93c5fd;
   background: rgba(59,130,246,.15);
+  border-color: #3b82f6;
 }
 
-/* Filtro */
-.dark-mode .filter-section label { color: #e5e7eb; }
+.dark-mode .description-legend {
+  color: #adb5bd;
+}
+
+/* Filtro modo oscuro */
+.dark-mode .filter-section label { 
+  color: #e5e7eb; 
+}
+
 .dark-mode #filterAcademicInput {
   background: #0b1220;
   color: #e5e7eb;
   border: 1px solid #334155;
   box-shadow: none;
 }
+
 .dark-mode #filterAcademicInput:focus {
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37,99,235,.25);
 }
 
-/* Botones */
-.dark-mode .action-button { background: #2563eb; color: #fff; }
-.dark-mode .action-button:hover { background: #1e3a8a; }
-.dark-mode .secondary-button { background: #374151; color: #e5e7eb; }
-.dark-mode .secondary-button:hover { background: #4b5563; }
+/* Botones modo oscuro */
+.dark-mode .action-button { 
+  background: #2563eb; 
+  color: #fff; 
+}
 
-/* Tabla */
+.dark-mode .action-button:hover { 
+  background: #1e3a8a; 
+}
+
+.dark-mode .secondary-button { 
+  background: #374151; 
+  color: #e5e7eb; 
+}
+
+.dark-mode .secondary-button:hover { 
+  background: #4b5563; 
+}
+
+/* Tabla modo oscuro */
 .dark-mode #academic-tracking-table thead {
   background: #0f172a;
   color: #e5e7eb;
 }
+
 .dark-mode #academic-tracking-table th,
 .dark-mode #academic-tracking-table td {
   color: #e5e7eb;
   border-bottom: 1px solid #1f2937;
 }
-.dark-mode #academic-tracking-table tbody tr:nth-child(even) { background: #0f172a; }
-.dark-mode #academic-tracking-table tbody tr:hover { background: rgba(96,165,250,.12); }
 
-/* Enlaces dentro de celdas (si hay) */
-.dark-mode #academic-tracking-table a { color: #93c5fd; }
-
-/* ===== Badges de conteo (claro por defecto) ===== */
-:root{
-  --skull-ink: #111827;    /* negro/gris muy oscuro */
-  --warn-ink:  goldenrod;  /* igual a tu inline original */
+.dark-mode #academic-tracking-table tbody tr:nth-child(even) { 
+  background: #0f172a; 
 }
 
-.dark-mode{
-  --skull-ink: #e5e7eb;    /* texto claro en oscuro */
-  --warn-ink:  #fbbf24;    /* amarillo legible en oscuro */
+.dark-mode #academic-tracking-table tbody tr:hover { 
+  background: rgba(96,165,250,.12); 
+}
+
+.dark-mode #academic-tracking-table a { 
+  color: #93c5fd; 
+}
+/* Modo oscuro del periodo */
+.dark-mode .period-select label {
+  color: #e5e7eb;
+}
+
+.dark-mode #periodDropdown {
+  background: #0b1220;
+  color: #e5e7eb;
+  border: 1px solid #334155;
+}
+
+.dark-mode #periodDropdown:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37,99,235,.25);
+}
+
+.dark-mode #periodDropdown:hover {
+  border-color: #475569;
+  background-color: #1e293b;
+}
+
+.dark-mode #periodDropdown option {
+  background: #111827;
+  color: #e5e7eb;
+}
+
+
+/* ===== Badges de conteo ===== */
+:root {
+  --skull-ink: #111827;
+  --warn-ink: goldenrod;
+}
+
+.dark-mode {
+  --skull-ink: #e5e7eb;
+  --warn-ink: #fbbf24;
 }
 
 .centered-count {
   display: flex;
-  justify-content: center; /* centra en horizontal */
-  align-items: center;     /* centra número y calavera */
-  gap: 4px;                /* espacio entre número y calavera */
-  margin-top: 8px;         /* separa un poco del título */
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
   font-size: 16px;
   font-weight: 600;
 }
@@ -281,8 +485,8 @@ body.dark-mode {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;       /* tamaño consistente */
-  line-height: 1;        /* evita que la calavera se baje */
+  font-size: 15px;
+  line-height: 1;
   vertical-align: middle;
 }
 
@@ -292,37 +496,31 @@ body.dark-mode {
 }
 
 .count-badge .icon {
-  font-size: 16px;       /* ajusta el tamaño de la calavera */
+  font-size: 16px;
   line-height: 1;
   display: flex;
   align-items: center;
 }
 
+.count-badge--skull { 
+  color: var(--skull-ink); 
+}
 
-.count-badge--skull{ color: var(--skull-ink); }
-.count-badge--warn { color: var(--warn-ink); }
+.count-badge--warn { 
+  color: var(--warn-ink); 
+}
 
-.count-badge:hover{ opacity: .9; }
-.count-badge strong{ font-weight: 700; }
-
-.description-legend {
-      text-align: center;
-      margin: 0.2rem 0 1rem 0;
-      font-size: 0.9rem;
-      color: #6c757d;
-      line-height: 1.3;
-      grid-column: 1 / -1;
-      width: 100%;
-      margin-top: -20px;
-    }
-
-    .dark-mode .description-legend {
-      color: #adb5bd;
-    }
-
+.count-badge:hover { 
+  opacity: .9; 
+}
 
 /* Responsive */
 @media (max-width: 768px) {
+  .container {
+    margin: 20px 15px; /* Márgenes laterales en móvil */
+    padding: 20px;
+  }
+
   .header {
     flex-direction: column;
     align-items: stretch;
@@ -342,4 +540,33 @@ body.dark-mode {
     justify-content: center;
     flex-wrap: wrap;
   }
+
+  .title {
+    font-size: 22px;
+  }
+
+  #academic-tracking-table {
+    font-size: 12px;
+  }
+
+  #academic-tracking-table th,
+  #academic-tracking-table td {
+    padding: 8px 4px;
+  }
 }
+
+@media (max-width: 480px) {
+  .container {
+    margin: 10px;
+    padding: 15px;
+  }
+
+  .title {
+    font-size: 20px;
+  }
+
+  #academic-tracking-table {
+    font-size: 11px;
+  }
+}
+
