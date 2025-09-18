@@ -31,8 +31,13 @@ function docenteFrom(raw) {
   return parts.length === 2 ? norm(parts[1]) : d;
 }
 
-function buildKey(id, materia) {
-  return `${id}||${materia}`;
+function buildKey(id, materia, periodo) {
+  return `${id}||${materia}||${periodo}`;
+}
+
+// Helpers para HTML
+function escapeHtml(s = '') {
+  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
 /* ===========================
@@ -67,9 +72,7 @@ function stripHtml(s = '') {
   const tmp = document.createElement('div'); tmp.innerHTML = s;
   return tmp.textContent || tmp.innerText || '';
 }
-function escapeHtml(s = '') {
-  return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
+
 // Fallback overlay si no hay SweetAlert2
 function createLoadingOverlay(text) {
   if (document.getElementById('email-loading-overlay')) return;
@@ -112,9 +115,8 @@ async function loadDocentesDetalle() {
 }
 
 /* ===========================
- * Detección de docentes faltantes / sin correo (como en nee-control)
+ * Detección de docentes faltantes / sin correo
  * =========================== */
-// Set de nombres canónicos presentes en el excel (prueba varias columnas/combos)
 function buildDocentesExcelSet(docentesExcel) {
   const set = new Set();
   for (const r of docentesExcel || []) {
@@ -133,7 +135,6 @@ function buildDocentesExcelSet(docentesExcel) {
   return set;
 }
 
-// Extrae el nombre dentro del paréntesis de "[Vez] Materia (Docente: Paralelo)"
 function extractDocentesFromSelected(students) {
   const docentes = new Set();
   for (const s of students || []) {
@@ -154,7 +155,6 @@ function computeMissingDocentes(selected, docentesExcel) {
   return missing.sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 }
 
-// Utilidades para “sin correo”
 function getDocenteIdFromRow(r) {
   const idKeys = ["IDENTIFICACION","IDENTIFICACIÓN","CI","CEDULA","CÉDULA","DOCUMENTO","Documento"];
   for (const k of idKeys) { const v = norm(r[k]); if (v) return v; }
@@ -181,10 +181,9 @@ function computeNoEmailDocentesMessages(selected, docentesExcel) {
   const messages = new Set();
   for (const nombre of docentes) {
     const matches = rowsMatchNombre(docentesExcel, nombre);
-    if (matches.length === 0) continue; // los no-encontrados se manejan aparte
+    if (matches.length === 0) continue;
     const hasAnyEmail = matches.some(getEmailFromRow);
     if (!hasAnyEmail) {
-      // si hay varias filas, toma el primer ID no vacío
       let id = '';
       for (const r of matches) { id = getDocenteIdFromRow(r); if (id) break; }
       messages.add(
@@ -198,19 +197,43 @@ function computeNoEmailDocentesMessages(selected, docentesExcel) {
 }
 
 /* ===========================
- * Construcción de filas (igual a tu código)
+ * Construcción de filas CON FILTROS
  * =========================== */
-async function buildRows() {
+async function buildRows(periodoSeleccionado = null, carreraSeleccionada = null) {
   const semestre = await loadData(KEY_POR_SEMESTRE);
   const calificaciones = await loadData(KEY_PARCIAL_TOTAL);
-  if (!Array.isArray(semestre) || !Array.isArray(calificaciones)) return [];
+  if (!Array.isArray(semestre) || !Array.isArray(calificaciones)) return { rows: [], periodos: [], carreras: [] };
 
-  const periodoActual = norm(semestre[0]?.PERIODO);
+  // Obtener todos los periodos únicos disponibles
+  const periodosUnicos = [...new Set(calificaciones.map(r => norm(r["PERIODO"])).filter(Boolean))]
+    .sort((a,b) => String(b).localeCompare(String(a)));
+  
+  // Si no se especifica periodo, usar el más reciente
+  let periodoActual = periodoSeleccionado || localStorage.getItem('selectedPeriodTM') || periodosUnicos[0];
+  if (!periodosUnicos.includes(periodoActual)) periodoActual = periodosUnicos[0];
+
+  // Obtener carreras únicas de los datos filtrados por periodo
+  const carrerasUnicas = [...new Set(calificaciones
+    .filter(r => norm(r["PERIODO"]) === periodoActual)
+    .map(r => norm(r["CARRERA"]))
+    .filter(Boolean))]
+    .sort((a,b) => a.localeCompare(b,'es',{sensitivity:'base'}));
+  carrerasUnicas.unshift('Todas');
+
+  // Si no se especifica carrera, usar 'Todas'
+  let carreraActual = carreraSeleccionada || localStorage.getItem('selectedCareerTM') || 'Todas';
+  if (!carrerasUnicas.includes(carreraActual)) carreraActual = 'Todas';
+
   const periodoAnterior = getPeriodoAnterior(periodoActual);
-
+  
   const periodLabel = document.getElementById("current-period-label");
   if (periodLabel) periodLabel.textContent = `📅 Periodo actual: ${periodoActual}`;
-  if (!periodoAnterior) return [];
+  
+  if (!periodoAnterior) return { rows: [], periodos: periodosUnicos, carreras: carrerasUnicas };
+
+  // Guardar selecciones en localStorage
+  localStorage.setItem('selectedPeriodTM', periodoActual);
+  localStorage.setItem('selectedCareerTM', carreraActual);
 
   const anteriores = new Map();
   const actuales = new Set();
@@ -219,11 +242,15 @@ async function buildRows() {
     const id = norm(row["IDENTIFICACION"]);
     const materia = norm(row["MATERIA"]);
     const periodo = norm(row["PERIODO"]);
+    const carrera = norm(row["CARRERA"]);
     const noVez = asNum(row["NO. VEZ"]);
     const promedio = asNum(row["PROMEDIO"]);
     if (!id || !materia || !periodo || noVez === null) continue;
 
-    const key = buildKey(id, materia);
+    // Aplicar filtro de carrera (solo si no es "Todas")
+    if (carreraActual !== 'Todas' && carrera !== carreraActual) continue;
+
+    const key = buildKey(id, materia, periodo);
 
     if (periodo === periodoAnterior && noVez === 2 && promedio < 7) {
       anteriores.set(key, row);
@@ -235,7 +262,8 @@ async function buildRows() {
 
   const resultado = [];
   for (const [key, row] of anteriores.entries()) {
-    if (!actuales.has(key)) {
+    const currentKey = buildKey(norm(row["IDENTIFICACION"]), norm(row["MATERIA"]), periodoActual);
+    if (!actuales.has(currentKey)) {
       const id = norm(row["IDENTIFICACION"]);
       const nombre = `${norm(row["APELLIDOS"])} ${norm(row["NOMBRES"]).trim()}`;
       const correo = [norm(row["CORREO_INSTITUCIONAL"]), norm(row["CORREO_PERSONAL"])].filter(Boolean).join('; ');
@@ -251,17 +279,18 @@ async function buildRows() {
         Nivel: nivel,
         Materia: materia,
         Docente: docente,
+        Carrera: norm(row["CARRERA"]),
         '[Vez] Materia (Docente)': `[2] ${materia} (${docente})`
       });
     }
   }
 
   resultado.sort((a, b) => a.Estudiante.localeCompare(b.Estudiante, 'es', { sensitivity: 'base' }));
-  return resultado;
+  return { rows: resultado, periodos: periodosUnicos, carreras: carrerasUnicas };
 }
 
 /* ===========================
- * Render de tabla (igual a tu código)
+ * Render de tabla
  * =========================== */
 function renderTable(rows) {
   const tbody = document.getElementById('academicTrackingTableBody');
@@ -271,7 +300,7 @@ function renderTable(rows) {
 
   tbody.innerHTML = '';
 
-  // 🔹 Set para estudiantes únicos
+  // Set para estudiantes únicos
   const uniqueStudents = new Set();
 
   rows.forEach(r => {
@@ -291,7 +320,7 @@ function renderTable(rows) {
 
     tbody.appendChild(tr);
 
-    // 🔹 Agregamos al Set
+    // Agregamos al Set
     uniqueStudents.add(r.Identificacion);
   });
 
@@ -299,6 +328,25 @@ function renderTable(rows) {
   if (totalStu) totalStu.textContent = `Total de Estudiantes: ${uniqueStudents.size}`;
 }
 
+/* ===========================
+ * Poblar selects de filtros
+ * =========================== */
+function populateSelects(periodos, carreras, periodoActual, carreraActual) {
+  const periodSelect = document.getElementById('period-select');
+  const careerSelect = document.getElementById('carrer-select');
+
+  if (periodSelect) {
+    periodSelect.innerHTML = periodos.map(p => 
+      `<option value="${escapeHtml(p)}" ${p === periodoActual ? 'selected' : ''}>${escapeHtml(p)}</option>`
+    ).join('');
+  }
+
+  if (careerSelect) {
+    careerSelect.innerHTML = carreras.map(c => 
+      `<option value="${escapeHtml(c)}" ${c === carreraActual ? 'selected' : ''}>${escapeHtml(c)}</option>`
+    ).join('');
+  }
+}
 
 /* ===========================
  * Main
@@ -307,20 +355,56 @@ document.addEventListener('DOMContentLoaded', async () => {
   const filterInput = document.getElementById('filterAcademicInput');
   const backBtn     = document.getElementById('goToMenuButton');
   const sendBtn     = document.getElementById('sendAcademicEmails');
+  const periodSelect = document.getElementById('period-select');
+  const careerSelect = document.getElementById('carrer-select');
 
-  let allRows = await buildRows();
-  renderTable(allRows);
+  let allRows = [];
+  let allPeriodos = [];
+  let allCarreras = [];
 
+  // Carga inicial
+  async function loadAndRender(periodoSeleccionado = null, carreraSeleccionada = null) {
+    const result = await buildRows(periodoSeleccionado, carreraSeleccionada);
+    allRows = result.rows;
+    allPeriodos = result.periodos;
+    allCarreras = result.carreras;
+    
+    // Obtener periodo y carrera actuales desde localStorage o usar defaults
+    const periodoActual = periodoSeleccionado || localStorage.getItem('selectedPeriodTM') || allPeriodos[0];
+    const carreraActual = carreraSeleccionada || localStorage.getItem('selectedCareerTM') || 'Todas';
+    
+    populateSelects(allPeriodos, allCarreras, periodoActual, carreraActual);
+    renderTable(allRows);
+  }
+
+  // Carga inicial
+  await loadAndRender();
+
+  // Event listener para cambio de periodo
+  if (periodSelect) {
+    periodSelect.addEventListener('change', async (e) => {
+      await loadAndRender(e.target.value, careerSelect?.value);
+    });
+  }
+
+  // Event listener para cambio de carrera
+  if (careerSelect) {
+    careerSelect.addEventListener('change', async (e) => {
+      await loadAndRender(periodSelect?.value, e.target.value);
+    });
+  }
+
+  // Filtro de búsqueda
   filterInput?.addEventListener('input', () => {
     const q = filterInput.value.toLowerCase();
     const filtered = allRows.filter(r =>
-      [r.Identificacion, r.Estudiante, r.Correo, r.Nivel, r.Materia]
+      [r.Identificacion, r.Estudiante, r.Correo, r.Nivel, r.Materia, r.Docente]
         .some(v => String(v ?? '').toLowerCase().includes(q))
     );
     renderTable(filtered);
   });
 
-  // ===== Envío (similar a nee-control pero usando enviarCorreos del emailModule) =====
+  // Envío de correos
   sendBtn?.addEventListener('click', async () => {
     // Seleccionados
     const selected = [];
@@ -337,7 +421,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // Normaliza estructura esperada por emailModule (array en "[Vez] Materia (Docente)" + flag enviar)
+    // Normaliza estructura esperada por emailModule
     const payload = selected.map(r => ({
       ...r,
       enviar: true,
@@ -349,7 +433,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Carga detalle de docentes para cruce
     const docentesExcel = await loadDocentesDetalle();
 
-    // Cálculo local (fallback) para mostrar modales como en nee-control
+    // Cálculo local (fallback) para mostrar modales
     const expectedMissing = computeMissingDocentes(payload, docentesExcel);
     const expectedNoEmail = computeNoEmailDocentesMessages(payload, docentesExcel);
 
@@ -368,7 +452,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         timer: 1400
       });
 
-      // Si tu emailModule devolviera arrays, se priorizan; si no, usamos los calculados
+      // Priorizar arrays del result si existen, sino usar los calculados
       const missingDocentes = Array.isArray(result?.missingDocentes) && result.missingDocentes.length
         ? result.missingDocentes
         : expectedMissing;

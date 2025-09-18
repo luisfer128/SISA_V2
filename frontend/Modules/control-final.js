@@ -1,4 +1,4 @@
-// seguimiento-reprobados.js (aplica el mismo flujo de envío)
+// seguimiento-reprobados.js (con filtros de periodo y carrera)
 import { loadData } from '../indexeddb-storage.js';
 import { enviarCorreos } from './emailModule.js';
 
@@ -9,6 +9,7 @@ const asNum = (v) => {
 };
 
 const KEY_REPORTE = 'academicTrackingData_REPORTE_POR_SEMESTRE';
+const KEY_PARCIAL_TOTAL = 'academicTrackingData_REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL_TOTAL_xlsx';
 const KEY_NOMINA  = 'academicTrackingData_REPORTE_NOMINA_ESTUDIANTES_MATRICULADOS_LEGALIZADOS_xlsx';
 
 /* ===========================
@@ -46,7 +47,6 @@ function stripHtml(s = '') {
 function escapeHtml(s = '') {
   return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
-// Fallback overlay
 function createLoadingOverlay(text) {
   if (document.getElementById('email-loading-overlay')) return;
   const overlay = document.createElement('div');
@@ -89,7 +89,6 @@ async function loadDocentesDetalle() {
 
 /* ===========================
  * Detección de docentes faltantes / sin correo
- * (idéntico a nee-control / seguimiento-academico)
  * =========================== */
 const canon = (s) =>
   norm(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -155,7 +154,7 @@ function computeNoEmailDocentesMessages(selected, docentesExcel) {
   const messages = new Set();
   for (const nombre of docentes) {
     const matches = rowsMatchNombre(docentesExcel, nombre);
-    if (matches.length === 0) continue; // los no-encontrados se manejan aparte
+    if (matches.length === 0) continue;
     const hasAnyEmail = matches.some(getEmailFromRow);
     if (!hasAnyEmail) {
       let id = '';
@@ -171,13 +170,43 @@ function computeNoEmailDocentesMessages(selected, docentesExcel) {
 }
 
 /* ===========================
- * Build rows (tu lógica original)
+ * Construcción de filas CON FILTROS
  * =========================== */
-async function buildRows() {
+async function buildRows(periodoSeleccionado = null, carreraSeleccionada = null) {
   const datosNotas  = await loadData(KEY_REPORTE);
   const datosNomina = await loadData(KEY_NOMINA);
-  if (!Array.isArray(datosNotas) || !Array.isArray(datosNomina)) return [];
+  const datosCalificaciones = await loadData(KEY_PARCIAL_TOTAL) || [];
 
+  if (!Array.isArray(datosNotas) || !Array.isArray(datosNomina)) {
+    return { rows: [], periodos: [], carreras: [] };
+  }
+
+  // Combinar fuentes para extraer periodos únicos
+  const todasLasFuentes = [...datosNotas, ...datosCalificaciones];
+  const periodosUnicos = [...new Set(todasLasFuentes.map(r => norm(r["PERIODO"])).filter(Boolean))]
+    .sort((a,b) => String(b).localeCompare(String(a)));
+  
+  // Seleccionar periodo actual
+  let periodoActual = periodoSeleccionado || localStorage.getItem('selectedPeriodSRP') || periodosUnicos[0];
+  if (!periodosUnicos.includes(periodoActual)) periodoActual = periodosUnicos[0];
+
+  // Extraer carreras únicas del periodo seleccionado
+  const carrerasUnicas = [...new Set(todasLasFuentes
+    .filter(r => norm(r["PERIODO"]) === periodoActual)
+    .map(r => norm(r["CARRERA"]))
+    .filter(Boolean))]
+    .sort((a,b) => a.localeCompare(b,'es',{sensitivity:'base'}));
+  carrerasUnicas.unshift('Todas');
+
+  // Seleccionar carrera actual
+  let carreraActual = carreraSeleccionada || localStorage.getItem('selectedCareerSRP') || 'Todas';
+  if (!carrerasUnicas.includes(carreraActual)) carreraActual = 'Todas';
+
+  // Guardar selecciones
+  localStorage.setItem('selectedPeriodSRP', periodoActual);
+  localStorage.setItem('selectedCareerSRP', carreraActual);
+
+  // Construir mapa NEE
   const mapaNEE = new Map();
   for (const r of datosNomina) {
     const id = norm(r["IDENTIFICACION"]);
@@ -189,7 +218,14 @@ async function buildRows() {
   const rows = [];
   for (const row of datosNotas) {
     const id = norm(row["IDENTIFICACION"]);
+    const periodo = norm(row["PERIODO"]);
+    const carrera = norm(row["CARRERA"]);
+    
     if (!id) continue;
+
+    // Aplicar filtros de periodo y carrera
+    if (periodo !== periodoActual) continue;
+    if (carreraActual !== 'Todas' && carrera !== carreraActual) continue;
 
     const estado = norm(row["ESTADO"]);
     if (estado !== "REPROBADO") {
@@ -223,12 +259,13 @@ async function buildRows() {
     const vez     = `[${noVez}] ${materia}${docente ? ` (${docente})` : ''}`;
 
     rows.push({
-      _key: `${id}||${materia}`,
+      _key: `${id}||${materia}||${periodo}`,
       Identificación: id,
       Estudiante: `${norm(row["APELLIDOS"])} ${norm(row["NOMBRES"])}`,
       Correo: [norm(row["CORREO_INSTITUCIONAL"]), norm(row["CORREO_PERSONAL"])].filter(Boolean).join('; '),
       NEE: tieneNEE ? mapaNEE.get(id) : '',
       Nivel: norm(row["NIVEL"]),
+      Carrera: carrera,
       "[Vez] Materia (Docente)": vez,
       "Parcial Final/[Mejor/Recup]": parcialFinal,
       Promedio: asNum(row["PROMEDIO"])?.toFixed(2) ?? '-',
@@ -236,11 +273,11 @@ async function buildRows() {
     });
   }
 
-  return rows;
+  return { rows, periodos: periodosUnicos, carreras: carrerasUnicas };
 }
 
 /* ===========================
- * Render tabla (tu lógica)
+ * Render tabla
  * =========================== */
 function renderTable(rows) {
   const tbody    = document.getElementById('academicTrackingTableBody');
@@ -252,7 +289,7 @@ function renderTable(rows) {
   tbody.innerHTML = '';
   let skullCount = 0;
 
-  // 🔹 Set para contar estudiantes únicos
+  // Set para contar estudiantes únicos
   const uniqueStudents = new Set();
 
   rows.forEach(r => {
@@ -277,7 +314,7 @@ function renderTable(rows) {
     tbody.appendChild(tr);
     skullCount++;
 
-    // 🔹 Agregamos al set el ID del estudiante
+    // Agregamos al set el ID del estudiante
     uniqueStudents.add(r.Identificación);
   });
 
@@ -288,6 +325,25 @@ function renderTable(rows) {
   }
 }
 
+/* ===========================
+ * Poblar selects de filtros
+ * =========================== */
+function populateSelects(periodos, carreras, periodoActual, carreraActual) {
+  const periodSelect = document.getElementById('period-select');
+  const careerSelect = document.getElementById('carrer-select');
+
+  if (periodSelect) {
+    periodSelect.innerHTML = periodos.map(p => 
+      `<option value="${escapeHtml(p)}" ${p === periodoActual ? 'selected' : ''}>${escapeHtml(p)}</option>`
+    ).join('');
+  }
+
+  if (careerSelect) {
+    careerSelect.innerHTML = carreras.map(c => 
+      `<option value="${escapeHtml(c)}" ${c === carreraActual ? 'selected' : ''}>${escapeHtml(c)}</option>`
+    ).join('');
+  }
+}
 
 /* ===========================
  * Main
@@ -297,26 +353,59 @@ document.addEventListener('DOMContentLoaded', async () => {
   const sendBtn     = document.getElementById('sendAcademicEmails');
   const backBtn     = document.getElementById('goToMenuButton');
   const periodLabel = document.getElementById("current-period-label");
-  const periodoData = await loadData(KEY_REPORTE);
+  const periodSelect = document.getElementById('period-select');
+  const careerSelect = document.getElementById('carrer-select');
 
-  if (periodLabel && Array.isArray(periodoData) && periodoData.length > 0) {
-    const primerPeriodo = periodoData.find(row => row["PERIODO"]);
-    if (primerPeriodo) {
-      periodLabel.textContent = `📅 Periodo actual: ${primerPeriodo["PERIODO"]}`;
+  let allRows = [];
+  let allPeriodos = [];
+  let allCarreras = [];
+
+  // Función para cargar y renderizar
+  async function loadAndRender(periodoSeleccionado = null, carreraSeleccionada = null) {
+    const result = await buildRows(periodoSeleccionado, carreraSeleccionada);
+    let rows = result.rows;
+    allPeriodos = result.periodos;
+    allCarreras = result.carreras;
+    
+    // Obtener periodo y carrera actuales
+    const periodoActual = periodoSeleccionado || localStorage.getItem('selectedPeriodSRP') || allPeriodos[0];
+    const carreraActual = carreraSeleccionada || localStorage.getItem('selectedCareerSRP') || 'Todas';
+    
+    populateSelects(allPeriodos, allCarreras, periodoActual, carreraActual);
+    
+    if (periodLabel) {
+      periodLabel.textContent = `📅 Periodo actual: ${periodoActual}`;
     }
+    
+    // Filtrar únicamente Promedio < 7 (descarta '-' o valores nulos)
+    rows = rows.filter(r => {
+      const p = asNum(r.Promedio);
+      return p !== null && p < 7;
+    });
+
+    allRows = rows;
+    allRows.sort((a, b) => a.Estudiante.localeCompare(b.Estudiante, 'es', { sensitivity: 'base' }));
+    renderTable(allRows);
   }
 
-  let allRows = await buildRows();
+  // Carga inicial
+  await loadAndRender();
 
-  // ⬇️ NUEVO: mostrar únicamente Promedio < 7 (descarta '-' o valores nulos)
-  allRows = allRows.filter(r => {
-    const p = asNum(r.Promedio);
-    return p !== null && p < 7;
-  });
+  // Event listener para cambio de periodo
+  if (periodSelect) {
+    periodSelect.addEventListener('change', async (e) => {
+      await loadAndRender(e.target.value, careerSelect?.value);
+    });
+  }
 
-  allRows.sort((a, b) => a.Estudiante.localeCompare(b.Estudiante, 'es', { sensitivity: 'base' }));
-  renderTable(allRows);
+  // Event listener para cambio de carrera
+  if (careerSelect) {
+    careerSelect.addEventListener('change', async (e) => {
+      await loadAndRender(periodSelect?.value, e.target.value);
+    });
+  }
 
+  // Filtro de búsqueda
   filterInput?.addEventListener('input', () => {
     const q = filterInput.value.toLowerCase();
     // allRows ya está prefiltrado a Promedio < 7, solo aplicamos el texto
@@ -330,10 +419,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   /* ===========================
-   * Envío de correos (igual que en nee-control/seguimiento-academico)
+   * Envío de correos
    * =========================== */
   sendBtn?.addEventListener('click', async () => {
-    // 1) Recolectar filas seleccionadas
+    // Recolectar filas seleccionadas
     const selectedRows = [];
     document.querySelectorAll('#academicTrackingTableBody input[type="checkbox"]:checked')
       .forEach(cb => {
@@ -351,7 +440,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // 2) Agrupar por estudiante para construir payload esperado por emailModule
+    // Agrupar por estudiante para construir payload esperado por emailModule
     const byId = new Map();
     for (const r of selectedRows) {
       if (!byId.has(r.Identificación)) {
@@ -373,14 +462,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       "[Vez] Materia (Docente)": Array.from(s["[Vez] Materia (Docente)"]).filter(Boolean)
     }));
 
-    // 3) Cargar detalle de docentes para cruce
+    // Cargar detalle de docentes para cruce
     const docentesExcel = await loadDocentesDetalle();
 
-    // 4) Cálculos locales (fallback) de faltantes/sin correo
+    // Cálculos locales (fallback) de faltantes/sin correo
     const expectedMissing = computeMissingDocentes(payload, docentesExcel);
     const expectedNoEmail = computeNoEmailDocentesMessages(payload, docentesExcel);
 
-    // 5) Enviar usando el módulo
+    // Enviar usando el módulo
     showLoading('Enviando correos...');
     try {
       const result = await enviarCorreos(payload, docentesExcel);

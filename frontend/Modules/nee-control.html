@@ -21,20 +21,46 @@
   <script src="../navbar.js" type="module"></script>
   <div class="container">
     <div class="header">
+      <!-- Bloque de título + selects -->
+      <div class="header-title-block">
+        <h2 class="title">Control NEE</h2>
+        <!-- Descripción -->
+        <div class="description-legend">
+          Seguimiento a estudiantes con necesidades especiales.
+        </div>
+        <!-- <span id="current-period-label" class="period-label"></span> -->
+        
+        <!-- Periodo actual -->
+        <div class="filters-container">
+          <div class="period-select-container">
+            <label for="period-select"><strong>Seleccionar Periodo:</strong></label>
+            <select id="period-select"></select>
+            <span class="period-hint">El período se actualizará automáticamente al seleccionar uno.</span>
+          </div>
+
+          <!-- Actualizar por carrera -->
+          <div class="carrer-select-container">
+            <label for="carrer-select"><strong>Seleccionar Carrera:</strong></label>
+            <select id="carrer-select"></select>
+            <span class="carrer-hint">La carrera se actualizará automáticamente al seleccionar uno.</span>
+          </div>
+        </div>
+      </div>
+        <!-- Estadísticas -->
+         <div class="stats-container">
+            <span class="total-students">
+              Total de Estudiantes: <span id="studentCount">0</span>
+            </span>
+         </div>
+        
+      
+      <!-- Filtro -->
       <div class="filter-section">
         <label for="filter-input">Filtrar:</label>
         <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
       </div>
-      <span id="current-period-label" class="period-label"></span>
-      <h2 class="title">Control NEE</h2>
-      <div class="description-legend">
-        Seguimiento a estudiantes con necesidades especiales.
-      </div>
-
-      <span class="total-students">
-        Total de Estudiantes: <span id="studentCount">0</span>
-      </span>
-
+      
+      <!-- Botones -->
       <div class="button-group">
         <button id="sendEmailsBtn" class="action-button">Enviar Correos</button>
         <button id="goToMenuButton" class="action-button secondary-button">Ir a Menú</button>
@@ -70,5 +96,7 @@
         });
       });
     </script>
+    <script type="module" src="../Modules/period-career-select.js"></script>
+
 </body>
 </html>

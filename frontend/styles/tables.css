@@ -42,111 +42,104 @@ body {
   padding-bottom: 15px;
   margin-bottom: 20px;
 }
-
-.title {
-  flex: 1 1 100%;
-  text-align: center;
-  font-size: 2rem;
-  font-weight: bold;
-  color: #1e40af;
+/* Bloque de título + selects */
+.header-title-block {
+  flex: 1 1 100%;       /* Ocupa todo el ancho */
+  display: flex;
+  flex-direction: column;
+  align-items: center;  /* Centra el título y los combos */
+  gap: 10px;
   order: 1;
 }
 
+.title {
+  font-size: 2rem;
+  font-weight: bold;
+  color: #1e40af;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+/* Descripción debajo del título */
 .description-legend {
   text-align: center;
-  margin: 0.2rem 0 1rem 0;
+  margin-bottom: 20px;
   font-size: 1rem;
   color: #6c757d;
   line-height: 1.3;
   width: 100%;
-  order: 2;
 }
-/* Periodo arriba a la derecha */
-.period-label {
-  font-weight: bold;
-  color: #3a3e42;
-  font-size: 14px;
-  padding: 4px 8px;
-  
-  border-radius: 6px;
-}
-/* Contenedor del combobox de periodo */
-.period-select {
-  position: absolute;
-  top: 0;
-  right: 0;
+/* ================= COMBOBOX ================= */
+.filters-container {
   display: flex;
-  align-items: center;
+  justify-content: space-between; /* Uno a la izquierda y otro a la derecha */
+  gap: 20px;
+  width: 100%;
+  max-width: 800px; /* Controla el ancho máximo */
+  margin: 0 auto 20px auto; /* Centrado horizontal con margen inferior */
+}
+/* Contenedor del periodo */
+.period-select-container,
+.carrer-select-container {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  padding: 4px 8px;
-  margin-top: 17px; /*Provicional*/
+  margin: 12px 0;
+}
+
+.period-select-container label,
+.carrer-select-container label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.period-select-container select,
+.carrer-select-container select {
+  padding: 6px 10px;
+  border: 1px solid var(--card-border);
   border-radius: 6px;
-  font-size: 14px;
-}
-/* .period-select {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-} */
-.period-select {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  font-size: 0.9rem;
+  background: var(--card-bg);
+  color: var(--text);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.3s ease, color 0.3s ease;
 }
 
-.period-select label {
-  font-weight: 500;
-  color: #374151;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-#periodDropdown {
-  position: relative;
-  padding: 8px 35px 8px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 500;
-  color: #374151;
-  background: #ffffff;
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-  background-position: right 8px center;
-  background-repeat: no-repeat;
-  background-size: 16px;
-  appearance: none;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 120px;
-}
-
-#periodDropdown:focus {
+/* Periodo → azul */
+.period-select-container select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 4px var(--accent);
   outline: none;
-  border-color: #2563eb;
-  box-shadow: 0 0 6px rgba(37, 99, 235, 0.4);
-  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%232563eb' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
 }
 
-#periodDropdown:hover {
-  border-color: #94a3b8;
-  background-color: #f8fafc;
+/* Carrera → verde */
+.carrer-select-container select:focus {
+  border-color: #2ecc71;
+  box-shadow: 0 0 4px rgba(46, 204, 113, 0.6);
+  outline: none;
 }
 
-#periodDropdown option {
-  padding: 10px;
-  background: #ffffff;
-  color: #374151;
-  font-weight: 500;
+/* Hint debajo del label */
+.period-hint,
+.carrer-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: -2px;
+  font-style: italic;
 }
+
 /* Estadísticas debajo de la descripción */
 .stats-container, #estado-resumen {
   display: flex;
-  gap: 12px;
-  justify-content: center;
+  justify-content: center; 
+  align-items: center;     
+  gap: 12px;               
   margin: 10px 0 20px 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;       
   order: 3;
+  text-align: center;
 }
+
 
 /* Total estudiantes */
 .total-students {
@@ -433,32 +426,19 @@ body.dark-mode {
 .dark-mode #academic-tracking-table a { 
   color: #93c5fd; 
 }
-/* Modo oscuro del periodo */
-.dark-mode .period-select label {
-  color: #e5e7eb;
+
+/* ================= DARK MODE EXTRA ================= */
+.dark-mode .period-select-container select,
+.dark-mode .carrer-select-container select {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  color: var(--text);
 }
 
-.dark-mode #periodDropdown {
-  background: #0b1220;
-  color: #e5e7eb;
-  border: 1px solid #334155;
+.dark-mode .period-hint,
+.dark-mode .carrer-hint {
+  color: var(--muted);
 }
-
-.dark-mode #periodDropdown:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37,99,235,.25);
-}
-
-.dark-mode #periodDropdown:hover {
-  border-color: #475569;
-  background-color: #1e293b;
-}
-
-.dark-mode #periodDropdown option {
-  background: #111827;
-  color: #e5e7eb;
-}
-
 
 /* ===== Badges de conteo ===== */
 :root {
@@ -513,18 +493,17 @@ body.dark-mode {
 .count-badge:hover { 
   opacity: .9; 
 }
-
-/* Responsive */
+/* ================= RESPONSIVE ================= */
 @media (max-width: 768px) {
-  .container {
-    margin: 20px 15px; /* Márgenes laterales en móvil */
-    padding: 20px;
+  .filters-container {
+    flex-direction: column;
+    align-items: center;
   }
 
-  .header {
-    flex-direction: column;
-    align-items: stretch;
-    text-align: center;
+  .period-select-container,
+  .carrer-select-container {
+    width: 100%;
+    max-width: 350px;
   }
 
   .filter-section {
@@ -569,4 +548,3 @@ body.dark-mode {
     font-size: 11px;
   }
 }
-

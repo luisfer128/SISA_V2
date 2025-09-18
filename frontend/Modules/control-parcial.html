@@ -21,19 +21,37 @@
   <script src="../navbar.js" type="module"></script>
   <div class="container">
     <div class="header">
-      <div class="filter-section">
-        <label for="filter-input">Filtrar:</label>
-        <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
-      </div>
-      <span id="current-period-label" class="period-label"></span>
-      <h2 class="title">Control Parcial</h2>
-      <div class="description-legend">
-        Estudiantes reprobados por asistencia o calificación hasta 1er. parcial
-      </div>
-      <div>
+      <!-- Bloque de título + selects -->
+       <div class="header-title-block">
+          <h2 class="title">Control Parcial</h2>
+          <!-- Descripción -->
+          <div class="description-legend">
+            Estudiantes reprobados por asistencia o calificación hasta 1er. parcial
+          </div>
+        <!-- <span id="current-period-label" class="period-label"></span> -->
+        <!-- Periodo actual -->
+          <div class="filters-container">
+            <div class="period-select-container">
+              <label for="period-select"><strong>Seleccionar Periodo:</strong></label>
+              <select id="period-select"></select>
+              <span class="period-hint">El período se actualizará automáticamente al seleccionar uno.</span>
+            </div>
+
+            <!-- Actualizar por carrera -->
+            <div class="carrer-select-container">
+              <label for="carrer-select"><strong>Seleccionar Carrera:</strong></label>
+              <select id="carrer-select"></select>
+              <span class="carrer-hint">La carrera se actualizará automáticamente al seleccionar uno.</span>
+            </div>
+          </div>
+        </div>
+      <!-- Estadísticas 1-->
+      <div class="stats-container">
         <span id="total-students" class="total-students">Total de Estudiantes: 0</span>
         <span id="total-materia" class="total-students">Total de Materias: 0</span>
       </div>
+      
+      <!-- Estadísticas 2-->
       <div id="estado-resumen" class="estado-resumen">
         <div class="estado-leyenda">Resumen de estado de estudiantes:</div>
         <div class="estado-badges">
@@ -42,6 +60,12 @@
         </div>
       </div>
 
+      <!-- Filtro -->
+      <div class="filter-section">
+        <label for="filter-input">Filtrar:</label>
+        <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
+      </div>
+      <!-- Botones -->
       <div class="button-group">
         <button id="sendAcademicEmails" class="action-button">Enviar Correos</button>
         <button id="goToMenuButton" class="action-button secondary-button">Ir a Menú</button>

@@ -21,22 +21,32 @@
   <script src="../navbar.js" type="module"></script>
   <div class="container">
     <div class="header">
-      <!-- Título -->
-      <h2 class="title">Seguimiento Académico</h2>
-      <!-- Periodo actual -->
-      <div class="period-select">
-        <label for="periodDropdown">Periodo:</label>
-        <select id="periodDropdown">
-          <option value="2025-1">2025-C1</option>
-          <option value="2024-2">2024-C2</option>
-          <option value="2024-1">2024-C1</option>
-        </select>
+      <!-- Bloque de título + selects -->
+      <div class="header-title-block">
+        <h2 class="title">Seguimiento Académico</h2>
+        <!-- Descripción -->
+        <div class="description-legend">
+          Notificaciones a docente y estudiantes por 2da y 3era vez registrados
+        </div>
+        <!-- <span id="current-period-label" class="period-label"></span> -->
+        <!-- Periodo actual -->
+        <div class="filters-container">
+          <div class="period-select-container">
+            <label for="period-select"><strong>Seleccionar Periodo:</strong></label>
+            <select id="period-select"></select>
+            <span class="period-hint">El período se actualizará automáticamente al seleccionar uno.</span>
+          </div>
+
+          <!-- Actualizar por carrera -->
+          <div class="carrer-select-container">
+            <label for="carrer-select"><strong>Seleccionar Carrera:</strong></label>
+            <select id="carrer-select"></select>
+            <span class="carrer-hint">La carrera se actualizará automáticamente al seleccionar uno.</span>
+          </div>
+        </div>
+        
       </div>
-      <span id="current-period-label" class="period-label"></span>
-      <!-- Descripción -->
-      <div class="description-legend">
-        Notificaciones a docente y estudiantes por 2da y 3era vez registrados
-      </div>
+      
       <!-- Estadísticas -->
       <div class="stats-container">
         <span class="total-students" id="total-students">Total Estudiantes: 0</span>
@@ -46,12 +56,13 @@
         <span class="stat-number" id="stat-riesgo-2">Riesgo Bajo (2): 0</span>
         <span class="stat-number" id="stat-riesgo-1">Sin Riesgo (1): 0</span>
       </div>
+
       <!-- Filtro -->
       <div class="filter-section">
         <label for="filter-input">Filtrar:</label>
         <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
-        
       </div>
+      
       <!-- Botones -->
       <div class="button-group">
         <button id="sendAcademicEmails" class="action-button">Enviar Correos</button>
