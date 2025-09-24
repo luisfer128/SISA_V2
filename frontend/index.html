@@ -18,8 +18,30 @@
   <link rel="stylesheet" href="/styles/menuApps.css">
 </head>
 <body>
-  <div id="navbar-container"></div>
-  <script src="navbar.js" type="module"></script>
+  <!-- NAVBAR -->
+  <header id="navbar" class="navbar" role="banner">
+  <div class="navbar-left">
+    <a class="brand" href="#" aria-label="SISA - Inicio">
+      <span class="brand-text">SISA</span>
+    </a>
+  </div>
+
+  <div class="navbar-center" id="navbar-userinfo" aria-live="polite">
+    <!-- JS inyecta: avatar, usuario, rol y facultad -->
+  </div>
+
+  <div class="navbar-right">
+    <a href="index.html" class="nav-btn" title="Inicio">
+      <i class="fas fa-home"></i>
+      <span>Inicio</span>
+    </a>
+    <a href="perfil.html" class="nav-btn" title="Perfil">
+      <i class="fas fa-user-circle"></i>
+      <span>Perfil</span>
+    </a>
+    <button id="logout-btn" class="nav-logout" aria-label="Cerrar sesión">Cerrar</button>
+  </div>
+</header>
 
 
   <div id="menu-container" class="menu-container">

@@ -1,4 +1,4 @@
-// index.js - Versión simplificada
+// index.js - Versión con popup personalizado
 import { loadData, saveData, removeData } from './indexeddb-storage.js';
 import { ensureSessionGuard, scheduleAutoLogout } from './auth-session.js';
 
@@ -51,6 +51,162 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   const normalizeFileName = (fileName) => fileName.replace(/\W+/g, "_");
+
+  // ---------- Función para mostrar popup de notificación ----------
+  function showNotificationPopup(message, type = 'info', duration = 4000) {
+    // Crear el popup si no existe
+    let popup = document.getElementById('notification-popup');
+    if (!popup) {
+      popup = document.createElement('div');
+      popup.id = 'notification-popup';
+      popup.className = 'notification-popup';
+      document.body.appendChild(popup);
+      
+      // Agregar estilos CSS si no existen
+      if (!document.getElementById('notification-popup-styles')) {
+        const styles = document.createElement('style');
+        styles.id = 'notification-popup-styles';
+        styles.textContent = `
+          .notification-popup {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 16px 24px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            z-index: 10000;
+            max-width: 400px;
+            transform: translateX(100%);
+            transition: all 0.3s ease-in-out;
+            border-left: 4px solid #007bff;
+            font-family: system-ui, -apple-system, sans-serif;
+            line-height: 1.4;
+            opacity: 0;
+            visibility: hidden;
+          }
+          
+          .notification-popup.show {
+            transform: translateX(0);
+            opacity: 1;
+            visibility: visible;
+          }
+          
+          .notification-popup.error {
+            border-left-color: #dc3545;
+            background: #fff5f5;
+          }
+          
+          .notification-popup.warning {
+            border-left-color: #ffc107;
+            background: #fffbf0;
+          }
+          
+          .notification-popup.success {
+            border-left-color: #28a745;
+            background: #f0fff4;
+          }
+          
+          .notification-popup .popup-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            font-weight: 600;
+          }
+          
+          .notification-popup .popup-icon {
+            font-size: 18px;
+          }
+          
+          .notification-popup .popup-message {
+            color: #333;
+            font-size: 14px;
+          }
+          
+          .notification-popup .close-btn {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #666;
+            padding: 4px;
+          }
+          
+          .notification-popup .close-btn:hover {
+            color: #333;
+          }
+          
+          /* Modo oscuro */
+          .dark-mode .notification-popup {
+            background: #2d3748;
+            color: #e2e8f0;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+          }
+          
+          .dark-mode .notification-popup.error {
+            background: #2d1b1b;
+          }
+          
+          .dark-mode .notification-popup.warning {
+            background: #2d2a1b;
+          }
+          
+          .dark-mode .notification-popup.success {
+            background: #1b2d1b;
+          }
+          
+          .dark-mode .notification-popup .popup-message {
+            color: #e2e8f0;
+          }
+        `;
+        document.head.appendChild(styles);
+      }
+    }
+
+    // Configurar icono según el tipo
+    const icons = {
+      info: 'ℹ️',
+      error: '❌',
+      warning: '⚠️',
+      success: '✅'
+    };
+
+    const titles = {
+      info: 'Información',
+      error: 'Error',
+      warning: 'Advertencia',
+      success: 'Éxito'
+    };
+
+    // Actualizar contenido del popup
+    popup.className = `notification-popup ${type}`;
+    popup.innerHTML = `
+      <button class="close-btn" onclick="this.parentElement.classList.remove('show'); setTimeout(() => this.parentElement.remove(), 300);">&times;</button>
+      <div class="popup-header">
+        <span class="popup-icon">${icons[type]}</span>
+        <span>${titles[type]}</span>
+      </div>
+      <div class="popup-message">${message}</div>
+    `;
+
+    // Mostrar popup
+    setTimeout(() => popup.classList.add('show'), 100);
+
+    // Auto-ocultar después de la duración especificada
+    setTimeout(() => {
+      popup.classList.remove('show');
+      // Remover el elemento del DOM después de la animación
+      setTimeout(() => {
+        if (popup && popup.parentElement) {
+          popup.remove();
+        }
+      }, 300);
+    }, duration);
+  }
 
   // ---------- Cargar perfil del usuario ----------
   async function loadUserProfile() {
@@ -167,91 +323,112 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // ---------- Sincronizar archivos ----------
-  async function syncFiles() {
-    try {
-      showOverlay('Verificando archivos...');
+  // Reemplaza la función syncFiles existente en index.js
+async function syncFiles() {
+  try {
+    showOverlay('Verificando archivos...');
 
-      const response = await apiRequest(`${API_BASE}/files`);
-      if (!response.ok) {
-        console.warn('Error obteniendo lista de archivos');
-        return false;
-      }
-
-      const data = await response.json();
-      const files = Array.isArray(data) ? data : (data.archivos || []);
-
-      if (files.length === 0) {
-        console.log('No hay archivos disponibles');
-        return false;
-      }
-
-      console.log(`Encontrados ${files.length} archivos en el servidor`);
-
-      // Verificar archivos que necesitan descarga
-      await ensureXLSXLoaded();
-      const missingFiles = [];
-
-      for (const file of files) {
-        const nombre = file.nombre || file.NombreArchivo;
-        if (!nombre) continue;
-
-        const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
-        const localData = await loadData(localKey);
-
-        if (!localData || !Array.isArray(localData) || localData.length === 0) {
-          missingFiles.push(file);
-        }
-      }
-
-      console.log(`${missingFiles.length} archivos por descargar`);
-
-      // Descargar archivos faltantes
-      if (missingFiles.length > 0) {
-        let downloadCount = 0;
-
-        for (const file of missingFiles) {
-          const nombre = file.nombre || file.NombreArchivo;
-          const id = file.id;
-
-          try {
-            showOverlay(`Descargando "${nombre}" (${downloadCount + 1}/${missingFiles.length})...`);
-
-            const fileResp = await apiRequest(`${API_BASE}/download/${id}`);
-            if (!fileResp.ok) continue;
-
-            const blob = await fileResp.blob();
-            const arrayBuffer = await blob.arrayBuffer();
-            const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
-            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet);
-
-            const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
-            await saveData(localKey, jsonData);
-
-            downloadCount++;
-            console.log(`Descargado: ${nombre} (${jsonData.length} registros)`);
-          } catch (error) {
-            console.error(`Error descargando ${nombre}:`, error);
-          }
-        }
-
-        if (downloadCount > 0) {
-          await saveData('lastSyncAt', new Date().toISOString());
-          showOverlay(`${downloadCount} archivos descargados correctamente`);
-          setTimeout(hideOverlay, 2000);
-          return true;
-        }
-      }
-
-      return false;
-    } catch (error) {
-      console.error('Error en sincronización:', error);
-      showOverlay('Error al sincronizar archivos');
-      setTimeout(hideOverlay, 3000);
+    // Obtener archivos filtrados por facultad del usuario
+    const response = await apiRequest(`${API_BASE}/files`);
+    if (!response.ok) {
+      console.warn('Error obteniendo lista de archivos');
       return false;
     }
+
+    const data = await response.json();
+    const files = Array.isArray(data) ? data : (data.archivos || []);
+
+    // NUEVA VALIDACIÓN: Verificar si hay mensaje específico de "no archivos"
+    if (data.mensaje && data.mensaje.includes('aún no cuenta con archivos')) {
+      console.log(`⚠️ ${data.mensaje}`);
+      hideOverlay();
+      showNotificationPopup(data.mensaje, 'warning', 5000);
+      return false;
+    }
+
+    if (files.length === 0) {
+      console.log('No hay archivos disponibles para tu facultad');
+      hideOverlay();
+      showNotificationPopup('No hay archivos disponibles para tu facultad', 'warning', 5000);
+      return false;
+    }
+
+    console.log(`Encontrados ${files.length} archivos para la facultad ${currentUser.facultadCod}`);
+
+    // Verificar archivos que necesitan descarga
+    await ensureXLSXLoaded();
+    const missingFiles = [];
+
+    for (const file of files) {
+      const nombre = file.nombre || file.NombreArchivo;
+      if (!nombre) continue;
+
+      const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
+      const localData = await loadData(localKey);
+
+      if (!localData || !Array.isArray(localData) || localData.length === 0) {
+        missingFiles.push(file);
+      }
+    }
+
+    console.log(`${missingFiles.length} archivos por descargar`);
+
+    // Descargar archivos faltantes
+    if (missingFiles.length > 0) {
+      let downloadCount = 0;
+
+      for (const file of missingFiles) {
+        const nombre = file.nombre || file.NombreArchivo;
+        const id = file.id;
+
+        try {
+          showOverlay(`Descargando "${nombre}" (${downloadCount + 1}/${missingFiles.length})...`);
+
+          const fileResp = await apiRequest(`${API_BASE}/download/${id}`);
+          if (!fileResp.ok) {
+            console.warn(`Error descargando archivo ${nombre}: ${fileResp.status}`);
+            continue;
+          }
+
+          const blob = await fileResp.blob();
+          const arrayBuffer = await blob.arrayBuffer();
+          const workbook = XLSX.read(new Uint8Array(arrayBuffer), { type: 'array' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+          const localKey = `academicTrackingData_${normalizeFileName(nombre)}`;
+          await saveData(localKey, jsonData);
+
+          downloadCount++;
+          console.log(`Descargado: ${nombre} (${jsonData.length} registros) - Facultad: ${file.facultadCod || file.FacultadCod}`);
+        } catch (error) {
+          console.error(`Error descargando ${nombre}:`, error);
+        }
+      }
+
+      if (downloadCount > 0) {
+        await saveData('lastSyncAt', new Date().toISOString());
+        await saveData('lastSyncFacultad', currentUser.facultadCod);
+        showOverlay(`${downloadCount} archivos descargados correctamente`);
+        setTimeout(hideOverlay, 2000);
+        return true;
+      } else {
+        hideOverlay();
+        showNotificationPopup('No se pudieron descargar los archivos. Verifique su conexión e intente nuevamente.', 'error', 6000);
+        return false;
+      }
+    } else {
+      console.log('Todos los archivos ya están sincronizados localmente');
+      return false;
+    }
+
+  } catch (error) {
+    console.error('Error en sincronización:', error);
+    hideOverlay();
+    showNotificationPopup('Error al sincronizar archivos. Verifique su conexión e intente nuevamente.', 'error', 6000);
+    return false;
   }
+}
 
   async function ensureXLSXLoaded() {
     if (window.XLSX) return;
@@ -477,7 +654,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('Error response:', response.status, errorData);
 
         hideOverlay();
-        alert(`No tienes permisos para acceder al panel de administración. Status: ${response.status}`);
+        showNotificationPopup(`No tienes permisos para acceder al panel de administración. Status: ${response.status}`, 'error', 5000);
         return;
       }
 
@@ -489,15 +666,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Opción 1: Redirección relativa
       if (data.url) {
         window.location.href = data.url;
-      } else {
-        // Opción 2: URL directa como fallback
-        window.location.href = 'Modules/panel-admin.html';
       }
 
     } catch (error) {
       console.error('Error abriendo panel admin:', error);
       hideOverlay();
-      alert('Error de conexión al acceder al panel de administración');
+      showNotificationPopup('Error de conexión al acceder al panel de administración', 'error', 5000);
     }
   }
 

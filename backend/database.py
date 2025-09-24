@@ -297,39 +297,74 @@ def guardar_archivo_excel(archivo, facultad_cod):
 
 
 def listar_archivos_por_facultad(facultad_cod=None):
-    """Lista archivos filtrados por facultad"""
+    """Lista archivos filtrados por código de facultad con logging detallado"""
+    try:
+        conn = conectar()
+        cursor = conn.cursor()
+
+        if facultad_cod:
+            print(f"🔍 Listando archivos para facultad: {facultad_cod}")
+            cursor.execute("""
+                SELECT Id, NombreArchivo, FechaSubida, FacultadCod, TipoMime
+                FROM ArchivosExcel 
+                WHERE FacultadCod = ?
+                ORDER BY FechaSubida DESC
+            """, (facultad_cod,))
+        else:
+            print("🔍 Listando TODOS los archivos (sin filtro de facultad)")
+            cursor.execute("""
+                SELECT Id, NombreArchivo, FechaSubida, FacultadCod, TipoMime
+                FROM ArchivosExcel 
+                ORDER BY FechaSubida DESC
+            """)
+
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        archivos = []
+        for row in rows:
+            archivo = {
+                'id': row[0],
+                'nombre': row[1],
+                'NombreArchivo': row[1],  # Alias para compatibilidad
+                'fechaSubida': row[2],
+                'facultadCod': row[3],
+                'FacultadCod': row[3],  # Alias para compatibilidad
+                'tipoMime': row[4]
+            }
+            archivos.append(archivo)
+
+        print(f"📊 Query result: {len(archivos)} archivos encontrados")
+        if facultad_cod and len(archivos) == 0:
+            print(f"⚠️ No hay archivos para la facultad {facultad_cod}")
+        elif len(archivos) > 0:
+            print(f"📄 Ejemplo archivo: {archivos[0]['nombre']} (facultad: {archivos[0]['facultadCod']})")
+
+        return archivos
+
+    except Exception as e:
+        print(f"❌ Error en listar_archivos_por_facultad: {e}")
+        return []
+
+
+def verificar_permisos_archivo(archivo_id, usuario_facultad_cod, es_admin=False):
+    """Verifica si un usuario tiene permisos para acceder a un archivo específico"""
+    if es_admin:
+        return True
+
     conn = conectar()
     try:
         cur = conn.cursor()
+        cur.execute("SELECT FacultadCod FROM ArchivosExcel WHERE Id = ?", (archivo_id,))
+        row = cur.fetchone()
 
-        if facultad_cod:
-            query = """
-                SELECT a.Id, a.NombreArchivo, a.FechaSubida, f.Nombre as FacultadNombre
-                FROM ArchivosExcel a
-                INNER JOIN Facultad f ON a.FacultadCod = f.FacultadCod
-                WHERE a.FacultadCod = ?
-                ORDER BY a.FechaSubida DESC
-            """
-            cur.execute(query, (facultad_cod,))
-        else:
-            query = """
-                SELECT a.Id, a.NombreArchivo, a.FechaSubida, f.Nombre as FacultadNombre
-                FROM ArchivosExcel a
-                INNER JOIN Facultad f ON a.FacultadCod = f.FacultadCod
-                ORDER BY a.FechaSubida DESC
-            """
-            cur.execute(query)
+        if not row:
+            return False
 
-        rows = cur.fetchall()
-        return [
-            {
-                'id': row[0],
-                'nombre': row[1],
-                'fecha': row[2].strftime('%Y-%m-%d %H:%M:%S'),
-                'facultad': row[3]
-            }
-            for row in rows
-        ]
+        archivo_facultad = row[0]
+        return archivo_facultad == usuario_facultad_cod
+
     finally:
         cur.close()
         conn.close()

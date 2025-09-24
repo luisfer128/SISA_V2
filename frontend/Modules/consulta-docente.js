@@ -19,15 +19,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ========= Helpers ========= */
   const norm = (s) => (s ?? '').toString().trim();
-  const canon = (s) =>
-    (s ?? '')
-      .toString()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toUpperCase();
+  const canon = (s) => (s ?? '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase();
 
-  // Acepta: 6+ dígitos + " - " + nombre (si tu ID tiene 10 dígitos, cambia {6,} a {10})
   const DOCENTE_REGEX = /^\s*(\d{6,})\s*-\s*([A-Za-zÁÉÍÓÚÜÑ\s.'-]+)\s*$/i;
   function parseDocente(raw) {
     const txt = norm(raw);
@@ -45,22 +38,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const MATERIAS_REGEX_EXCLUIR = [/^INGLES\s+(I|II|III|IV)\b/i];
   const materiaExcluida = (materia) => MATERIAS_REGEX_EXCLUIR.some(rx => rx.test(canon(materia)));
 
-  /* ========= FILTRO BASE: estado válido, docente válido, excluir Inglés I–IV ========= */
+  /* ========= FILTRO BASE ========= */
   const dataFiltrada = allData.filter(r => {
     const estado = canon(r.ESTADO);
     if (!ESTADOS_PERMITIDOS.has(estado)) return false;
-
     if (materiaExcluida(r.MATERIA)) return false;
-
     const d = parseDocente(r.DOCENTE);
-    if (!d) return false;                   // descarta "REAJUSTE…", "CONVALID…" etc.
+    if (!d) return false;
     if (d.canonNombre === 'MOVILIDAD') return false;
-
     if (!norm(r.PERIODO) || !norm(r.MATERIA)) return false;
     return true;
   });
 
-  /* ========= AUTOCOMPLETADO - Preparar lista de docentes únicos ========= */
+  /* ========= AUTOCOMPLETADO ========= */
   const docentesUnicos = new Map();
   dataFiltrada.forEach(r => {
     const parsed = parseDocente(r.DOCENTE);
@@ -79,14 +69,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const listaDocentes = Array.from(docentesUnicos.values())
     .sort((a, b) => a.nombre.localeCompare(b.nombre));
 
-  /* ========= CREAR DROPDOWN AUTOCOMPLETADO ========= */
   function createAutocompleteDropdown() {
-    // Crear contenedor del dropdown si no existe
     let dropdown = document.getElementById('docenteDropdown');
     if (!dropdown) {
       dropdown = document.createElement('div');
       dropdown.id = 'docenteDropdown';
-      // Posicionar el input como relativo si no lo está
       const inputContainer = docenteFilterInput.parentElement;
       if (getComputedStyle(inputContainer).position === 'static') {
         inputContainer.style.position = 'relative';
@@ -99,7 +86,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const dropdown = createAutocompleteDropdown();
 
   function showDropdown(filteredDocentes) {
-    // Limpiar contenido previo pero mantener el style
     const existingStyle = dropdown.querySelector('style');
     dropdown.innerHTML = '';
     if (existingStyle) dropdown.appendChild(existingStyle);
@@ -122,7 +108,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         background: transparent;
       `;
 
-      // Remover borde del último item
       if (index === filteredDocentes.slice(0, 10).length - 1) {
         item.style.borderBottom = 'none';
       }
@@ -132,21 +117,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         <div class="item-id" style="font-size: 12px; color: var(--muted); opacity: 0.9; line-height: 1.2;">ID: ${docente.id}</div>
       `;
 
-      // Hover effect
       item.addEventListener('mouseenter', () => {
         item.style.backgroundColor = 'color-mix(in srgb, var(--accent) 12%, transparent)';
-        // No cambiar el color del texto en hover, mantener el color por defecto
       });
 
       item.addEventListener('mouseleave', () => {
         if (!item.classList.contains('selected')) {
-          // Simplemente resetear el background, los colores se manejan por CSS
           item.style.backgroundColor = 'transparent';
-          // No tocar los colores de texto, dejar que CSS los maneje
         }
       });
 
-      // Click para seleccionar
       item.addEventListener('click', () => {
         docenteFilterInput.value = docente.nombre;
         hideDropdown();
@@ -165,12 +145,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function filterDocentes(query) {
     if (!query || query.length < 2) return [];
-
     const queryCanon = canon(query);
     return listaDocentes.filter(docente => {
-      // Buscar por ID (exacto) o por nombre (contiene)
-      return docente.id.includes(query.trim()) ||
-        docente.canonNombre.includes(queryCanon);
+      return docente.id.includes(query.trim()) || docente.canonNombre.includes(queryCanon);
     });
   }
 
@@ -181,18 +158,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       hideDropdown();
       return;
     }
-
     const filtered = filterDocentes(query);
     showDropdown(filtered);
   });
 
-  docenteFilterInput?.addEventListener('blur', (e) => {
-    // Delay para permitir click en dropdown
-    setTimeout(() => {
-      hideDropdown();
-    }, 200);
-  });
-
+  docenteFilterInput?.addEventListener('blur', () => setTimeout(() => hideDropdown(), 200));
   docenteFilterInput?.addEventListener('focus', (e) => {
     const query = e.target.value;
     if (query.length >= 2) {
@@ -201,7 +171,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Navegación con teclado
   docenteFilterInput?.addEventListener('keydown', (e) => {
     const items = dropdown.querySelectorAll('.dropdown-item');
     let currentSelected = dropdown.querySelector('.selected');
@@ -217,21 +186,17 @@ document.addEventListener('DOMContentLoaded', async () => {
           if (idEl) idEl.style.color = 'rgba(255,255,255,0.9)';
         }
       } else {
-        // Remover selección actual
         currentSelected.classList.remove('selected');
         currentSelected.style.backgroundColor = '';
-        // Detectar modo oscuro para aplicar color correcto
         const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches ||
           document.body.classList.contains('dark') ||
           document.documentElement.getAttribute('data-theme') === 'dark';
-
         currentSelected.style.color = isDark ? 'var(--foreground, #e2e8f0)' : 'var(--foreground, #0f172a)';
         const currentIdEl = currentSelected.querySelector('.item-id');
         if (currentIdEl) {
           currentIdEl.style.color = isDark ? 'var(--muted-foreground, #94a3b8)' : 'var(--muted-foreground, #64748b)';
         }
 
-        // Seleccionar siguiente
         const nextIndex = Array.from(items).indexOf(currentSelected) + 1;
         const nextItem = nextIndex < items.length ? items[nextIndex] : items[0];
         nextItem.classList.add('selected');
@@ -239,8 +204,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         nextItem.style.color = 'var(--accent-foreground, white)';
         const nextIdEl = nextItem.querySelector('.item-id');
         if (nextIdEl) nextIdEl.style.color = 'rgba(255,255,255,0.9)';
-
-        // Scroll automático si es necesario
         nextItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     } else if (e.key === 'ArrowUp') {
@@ -256,21 +219,17 @@ document.addEventListener('DOMContentLoaded', async () => {
           lastItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
         }
       } else {
-        // Remover selección actual
         currentSelected.classList.remove('selected');
         currentSelected.style.backgroundColor = '';
-        // Detectar modo oscuro para aplicar color correcto
         const isDarkUp = window.matchMedia('(prefers-color-scheme: dark)').matches ||
           document.body.classList.contains('dark') ||
           document.documentElement.getAttribute('data-theme') === 'dark';
-
         currentSelected.style.color = isDarkUp ? 'var(--foreground, #e2e8f0)' : 'var(--foreground, #0f172a)';
         const currentIdEl = currentSelected.querySelector('.item-id');
         if (currentIdEl) {
           currentIdEl.style.color = isDarkUp ? 'var(--muted-foreground, #94a3b8)' : 'var(--muted-foreground, #64748b)';
         }
 
-        // Seleccionar anterior
         const prevIndex = Array.from(items).indexOf(currentSelected) - 1;
         const prevItem = prevIndex >= 0 ? items[prevIndex] : items[items.length - 1];
         prevItem.classList.add('selected');
@@ -278,8 +237,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         prevItem.style.color = 'var(--accent-foreground, white)';
         const prevIdEl = prevItem.querySelector('.item-id');
         if (prevIdEl) prevIdEl.style.color = 'rgba(255,255,255,0.9)';
-
-        // Scroll automático si es necesario
         prevItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     } else if (e.key === 'Enter') {
@@ -295,7 +252,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Cerrar dropdown al hacer click fuera
   document.addEventListener('click', (e) => {
     if (!docenteFilterInput.contains(e.target) && !dropdown.contains(e.target)) {
       hideDropdown();
@@ -311,29 +267,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     let sortedData = [...data];
 
     function sortTable(column) {
-      // Si es la misma columna, alternar dirección
       if (currentSort.column === column) {
         currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
       } else {
-        // Nueva columna, empezar con descendente
         currentSort.column = column;
         currentSort.direction = 'desc';
       }
 
       const columnConfig = columns.find(col => col.key === column);
 
-      // Ordenar los datos
       sortedData.sort((a, b) => {
         let valueA = a[column];
         let valueB = b[column];
 
-        // Aplicar transformación personalizada si existe
         if (columnConfig?.sortTransform) {
           valueA = columnConfig.sortTransform(valueA);
           valueB = columnConfig.sortTransform(valueB);
         }
 
-        // Manejar valores numéricos
         if (typeof valueA === 'number' && typeof valueB === 'number') {
           if (currentSort.direction === 'asc') {
             return valueA > valueB ? 1 : valueA < valueB ? -1 : 0;
@@ -342,7 +293,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         }
 
-        // Manejar strings
         const aStr = String(valueA || '').toLowerCase();
         const bStr = String(valueB || '').toLowerCase();
 
@@ -353,19 +303,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
 
-      // Actualizar la tabla
       updateTableBody();
       updateSortIndicators();
     }
 
     function updateSortIndicators() {
-      // Limpiar todos los indicadores
       const headers = tbl.querySelectorAll('th[data-sort]');
       headers.forEach(th => {
         th.classList.remove('sort-asc', 'sort-desc');
       });
 
-      // Agregar indicador a la columna actual
       const currentHeader = tbl.querySelector(`th[data-sort="${currentSort.column}"]`);
       if (currentHeader) {
         currentHeader.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
@@ -399,7 +346,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tbl = document.createElement('table');
     tbl.className = 'striped';
 
-    // Crear header
     const thead = document.createElement('thead');
     const headerRow = document.createElement('tr');
 
@@ -417,7 +363,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       }
 
-      // Crear contenido del header igual que el original
       th.innerHTML = `
       ${col.label} 
       ${col.sortable !== false ? '<span class="sort-indicator"></span>' : ''}
@@ -429,11 +374,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     thead.appendChild(headerRow);
     tbl.appendChild(thead);
 
-    // Crear body
     const tbody = document.createElement('tbody');
     tbl.appendChild(tbody);
 
-    // Agregar estilos para los indicadores de ordenamiento (solo si no existen)
     if (!document.getElementById('sort-styles')) {
       const sortStyles = document.createElement('style');
       sortStyles.id = 'sort-styles';
@@ -461,7 +404,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.head.appendChild(sortStyles);
     }
 
-    // Llenar la tabla inicial
     updateTableBody();
     updateSortIndicators();
 
@@ -479,7 +421,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.appendChild(hostTop);
   }
 
-  // Contenedor del gráfico general (barras laterales + tabla)
   const chartsWrap = document.createElement('section');
   chartsWrap.className = 'chart-section';
   chartsWrap.style.marginTop = '8px';
@@ -497,7 +438,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const barCanvas = chartsWrap.querySelector('#chartAprobadosBar');
 
-  /* ====== Construcción del TOP apilado: Aprobadas vs Reprobadas por DOCENTE (todos sus cursos) ====== */
+  /* ====== Construcción del TOP apilado: Aprobadas vs Reprobadas por DOCENTE ====== */
   const aprobadasPorDoc = {};
   const reprobadasPorDoc = {};
   const totalPorDoc = {};
@@ -515,28 +456,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Ordena por % de REPROBADOS (mayor a menor) y toma Top 15
   const topStacked = Object.keys(totalPorDoc)
     .map(docente => {
       const ap = aprobadasPorDoc[docente] ?? 0;
       const rp = reprobadasPorDoc[docente] ?? 0;
       const tot = ap + rp;
-      const rpct = tot > 0 ? (rp / tot) * 100 : 0; // % reprobados
-      const apct = 100 - rpct;                     // % aprobados
+      const rpct = tot > 0 ? (rp / tot) * 100 : 0;
+      const apct = 100 - rpct;
       return { docente, ap, rp, tot, apct, rpct };
     })
     .filter(x => x.tot > 0)
-    .sort((a, b) => (b.rpct - a.rpct) || (b.tot - a.tot)) // más reprobados primero; desempate por mayor total
+    .sort((a, b) => (b.rpct - a.rpct) || (b.tot - a.tot))
     .slice(0, 15);
 
   const labelsStack = topStacked.map(x => x.docente);
-  const dataAp = topStacked.map(x => x.ap);       // absolutos (para tooltip/tabla)
+  const dataAp = topStacked.map(x => x.ap);
   const dataRp = topStacked.map(x => x.rp);
-  const dataApPct = topStacked.map(x => x.apct);     // %
+  const dataApPct = topStacked.map(x => x.apct);
   const dataRpPct = topStacked.map(x => x.rpct);
 
-
-  // === Gráfico GENERAL (normalizado a %) y ordenado por % aprobación desc ===
   let chartBarGeneral = new Chart(barCanvas, {
     type: 'bar',
     data: {
@@ -604,12 +542,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  /* ===== Tabla informativa bajo el gráfico (números absolutos) con ordenamiento ===== */
+  /* ===== Tabla informativa bajo el gráfico ===== */
   const tableWrap = document.createElement('div');
   tableWrap.style.marginTop = '12px';
   tableWrap.style.overflowX = 'auto';
 
-  // Preparar datos para la tabla ordenable
   const tableData = topStacked.map((x, i) => ({
     posicion: i + 1,
     docente: x.docente,
@@ -621,58 +558,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }));
 
   const tableColumns = [
-    {
-      key: 'posicion',
-      label: '#',
-      style: 'width:56px;',
-      sortable: false,
-      render: (row) => row.posicion
-    },
-    {
-      key: 'docente',
-      label: 'Docente',
-      render: (row) => row.docente
-    },
-    {
-      key: 'aprobadas',
-      label: 'Aprobadas',
-      style: 'text-align:right;width:140px;',
-      cellStyle: 'text-align:right;',
-      sortTransform: (val) => parseInt(val),
-      render: (row) => row.aprobadas
-    },
-    {
-      key: 'reprobadas',
-      label: 'Reprobadas',
-      style: 'text-align:right;width:140px;',
-      cellStyle: 'text-align:right;',
-      sortTransform: (val) => parseInt(val),
-      render: (row) => row.reprobadas
-    },
-    {
-      key: 'total',
-      label: 'Total',
-      style: 'text-align:right;width:160px;',
-      cellStyle: 'text-align:right;',
-      sortTransform: (val) => parseInt(val),
-      render: (row) => row.total
-    },
-    {
-      key: 'pctAprobacion',
-      label: '% Aprobación',
-      style: 'text-align:right;width:140px;',
-      cellStyle: 'text-align:right;',
-      sortTransform: (val) => parseFloat(val),
-      render: (row) => row.pctAprobacion + '%'
-    },
-    {
-      key: 'pctReprobacion',
-      label: '% Reprobados',
-      style: 'text-align:right;width:140px;',
-      cellStyle: 'text-align:right;',
-      sortTransform: (val) => parseFloat(val),
-      render: (row) => row.pctReprobacion + '%'
-    }
+    { key: 'posicion', label: '#', style: 'width:56px;', sortable: false, render: (row) => row.posicion },
+    { key: 'docente', label: 'Docente', render: (row) => row.docente },
+    { key: 'aprobadas', label: 'Aprobadas', style: 'text-align:right;width:140px;', cellStyle: 'text-align:right;', sortTransform: (val) => parseInt(val), render: (row) => row.aprobadas },
+    { key: 'reprobadas', label: 'Reprobadas', style: 'text-align:right;width:140px;', cellStyle: 'text-align:right;', sortTransform: (val) => parseInt(val), render: (row) => row.reprobadas },
+    { key: 'total', label: 'Total', style: 'text-align:right;width:160px;', cellStyle: 'text-align:right;', sortTransform: (val) => parseInt(val), render: (row) => row.total },
+    { key: 'pctAprobacion', label: '% Aprobación', style: 'text-align:right;width:140px;', cellStyle: 'text-align:right;', sortTransform: (val) => parseFloat(val), render: (row) => row.pctAprobacion + '%' },
+    { key: 'pctReprobacion', label: '% Reprobados', style: 'text-align:right;width:140px;', cellStyle: 'text-align:right;', sortTransform: (val) => parseFloat(val), render: (row) => row.pctReprobacion + '%' }
   ];
 
   const sortableTable = createSortableTable(tableData, tableColumns, 'generalTableContainer');
@@ -681,7 +573,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ========= TOP 10 REPROBADOS (vista general) ========= */
   function renderTop10() {
-    // limpiar hostTop
     while (hostTop.firstChild) hostTop.removeChild(hostTop.firstChild);
 
     const allowed = new Set(['APROBADA', 'REPROBADA']);
@@ -773,6 +664,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       content.style.opacity = '1';
       acc.dataset.open = '1';
     }
+    
     function closeAccordion(acc) {
       if (acc.dataset.open !== '1') return;
       const content = acc.querySelector('.acc-content');
@@ -886,10 +778,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Render inicial (vista general)
   renderTop10();
 
-  /* ========= HISTORIAL DEL DOCENTE (vista filtrada) ========= */
+  /* ========= HISTORIAL DOCENTE ========= */
   const histSection = document.createElement('section');
   histSection.id = 'historialDocenteContainer';
   histSection.className = 'chart-section';
@@ -909,27 +800,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       <div id="histTableWrap" style="overflow-x:auto;"></div>
     </div>
   `;
-  // Insertamos el historial arriba de hostTop (para que ocupe el mismo bloque visual)
   hostTop.parentNode.insertBefore(histSection, hostTop);
 
-  let histChart; // instancia Chart del historial
+  let histChart;
 
   function matchesDocente(row, q) {
     if (!q) return false;
     const p = parseDocente(row.DOCENTE);
     if (!p) return false;
     const f = canon(q);
-    // cédula exacta o nombre contiene
     return p.id === q.trim() || p.canonNombre.includes(f);
   }
 
   function renderDocenteHistory(query) {
-    // Filtrar filas del docente
     const rows = dataFiltrada.filter(r => matchesDocente(r, query));
-    // Ocultar vista general
     chartsWrap.style.display = 'none';
     hostTop.style.display = 'none';
-    // Mostrar historial
     histSection.style.display = 'block';
 
     const histTitle = histSection.querySelector('#histTitle');
@@ -937,7 +823,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tableWrap = histSection.querySelector('#histTableWrap');
     const canvas = histSection.querySelector('#histChartPeriodo');
 
-    // Limpieza
     histKpis.innerHTML = '';
     tableWrap.innerHTML = '';
     if (histChart) { histChart.destroy(); histChart = null; }
@@ -948,13 +833,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // Nombre a mostrar
     const uniqueDocs = new Set(rows.map(r => getNombreDocente(r.DOCENTE)));
     histTitle.textContent = uniqueDocs.size === 1
       ? `Historial del Docente: ${Array.from(uniqueDocs)[0]}`
       : `Historial de docentes que coinciden con: "${query}"`;
 
-    // Totales globales
     let aprobadas = 0, reprobadas = 0;
     rows.forEach(r => {
       const e = canon(r.ESTADO);
@@ -964,7 +847,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const total = aprobadas + reprobadas;
     const pct = total > 0 ? ((aprobadas / total) * 100).toFixed(2) : '0.00';
 
-    // KPIs
     const kpiTpl = (label, value) => `
       <div class="card" style="padding:10px 14px;min-width:180px;">
         <div class="muted" style="font-size:12px;">${label}</div>
@@ -975,7 +857,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     histKpis.insertAdjacentHTML('beforeend', kpiTpl('Total', total));
     histKpis.insertAdjacentHTML('beforeend', kpiTpl('% Aprobación', `${pct}%`));
 
-    // ===== Por PERÍODO (NORMALIZADO A % y ORDENADO por % aprobación DESC) =====
+    // Por PERÍODO
     const per = {};
     rows.forEach(r => {
       const periodo = norm(r.PERIODO);
@@ -994,8 +876,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         return { periodo: p, ap, rp, tot, pctAp };
       })
       .sort((a, b) => {
-        // Ordenar por período cronológicamente (más reciente primero)
-        // Asumiendo formato "YYYY - YYYY CI" o similar
         const extractYear = (periodo) => {
           const match = periodo.match(/(\d{4})/);
           return match ? parseInt(match[1]) : 0;
@@ -1004,13 +884,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const yearA = extractYear(a.periodo);
         const yearB = extractYear(b.periodo);
 
-        // Si los años son diferentes, ordenar por año descendente
         if (yearA !== yearB) {
           return yearB - yearA;
         }
 
-        // Si los años son iguales, ordenar alfabéticamente descendente
-        // Esto manejará casos como "2024 - 2025 CI" vs "2024 - 2025 CII"
         return b.periodo.localeCompare(a.periodo);
       });
 
@@ -1020,7 +897,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const serieApPct = periodosOrdenados.map(x => x.pctAp);
     const serieRpPct = periodosOrdenados.map(x => 100 - x.pctAp);
 
-    // Gráfico apilado horizontal por período (en %)
     histChart = new Chart(canvas, {
       type: 'bar',
       data: {
@@ -1087,7 +963,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     });
 
-    // ===== Tabla por MATERIA (agregada en todo el historial del docente) =====
+    // Tabla por MATERIA
     const materias = {};
     rows.forEach(r => {
       const m = norm(r.MATERIA);
@@ -1106,20 +982,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       pctReprobacion: v.ap + v.rp > 0 ? ((v.rp / (v.ap + v.rp)) * 100) : 0
     })).sort((a, b) => b.tot - a.tot);
 
-    // Estado del ordenamiento
     let currentSort = { column: 'tot', direction: 'desc' };
 
     function sortTable(column) {
-      // Si es la misma columna, alternar dirección
       if (currentSort.column === column) {
         currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
       } else {
-        // Nueva columna, empezar con descendente
         currentSort.column = column;
         currentSort.direction = 'desc';
       }
 
-      // Ordenar los datos
       listaMaterias.sort((a, b) => {
         let valueA, valueB;
 
@@ -1159,19 +1031,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
 
-      // Actualizar la tabla
       updateTableBody();
       updateSortIndicators();
     }
 
     function updateSortIndicators() {
-      // Limpiar todos los indicadores
       const headers = tbl.querySelectorAll('th[data-sort]');
       headers.forEach(th => {
         th.classList.remove('sort-asc', 'sort-desc');
       });
 
-      // Agregar indicador a la columna actual
       const currentHeader = tbl.querySelector(`th[data-sort="${currentSort.column}"]`);
       if (currentHeader) {
         currentHeader.classList.add(currentSort.direction === 'asc' ? 'sort-asc' : 'sort-desc');
@@ -1232,41 +1101,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   <tbody></tbody>
 `;
 
-    // Agregar estilos para los indicadores de ordenamiento
-    const sortStyles = document.createElement('style');
-    sortStyles.textContent = `
-  .sort-indicator::after {
-    content: ' ▲';
-    color: #ccc;
-    font-size: 12px;
-  }
-  
-  th.sort-asc .sort-indicator::after {
-    content: ' ▲';
-    color: var(--primary, #007bff);
-  }
-  
-  th.sort-desc .sort-indicator::after {
-    content: ' ▼';
-    color: var(--primary, #007bff);
-  }
-  
-  th[data-sort]:hover {
-    background-color: rgba(0, 0, 0, 0.05);
-  }
-`;
-    document.head.appendChild(sortStyles);
-
-    // Agregar event listeners para el ordenamiento
-    const headers = tbl.querySelectorAll('th[data-sort]');
-    headers.forEach(th => {
+    tbl.querySelectorAll('th[data-sort]').forEach(th => {
       th.addEventListener('click', () => {
         const column = th.getAttribute('data-sort');
         sortTable(column);
       });
     });
 
-    // Llenar la tabla inicial
     updateTableBody();
     updateSortIndicators();
 
@@ -1274,7 +1115,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     tableWrap.appendChild(tbl);
   }
 
-  // Quitar filtro (volver a vista general)
   histSection.querySelector('#btnClearFilter').addEventListener('click', () => {
     docenteFilterInput.value = '';
     histSection.style.display = 'none';
@@ -1283,11 +1123,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     hideDropdown();
   });
 
-  /* ========= Eventos del filtro ========= */
   function onSearch() {
     const q = norm(docenteFilterInput.value);
     if (!q) {
-      // Si el filtro está vacío, vuelve a la vista general
       histSection.style.display = 'none';
       chartsWrap.style.display = '';
       hostTop.style.display = '';

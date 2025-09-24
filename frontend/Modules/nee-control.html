@@ -17,8 +17,6 @@
   </script>
 </head>
 <body>
-  <div id="navbar-container"></div>
-  <script src="../navbar.js" type="module"></script>
   <div class="container">
     <div class="header">
       <!-- Bloque de título + selects -->
@@ -46,13 +44,16 @@
           </div>
         </div>
       </div>
-        <!-- Estadísticas -->
-         <div class="stats-container">
-            <span class="total-students">
-              Total de Estudiantes: <span id="studentCount">0</span>
-            </span>
-         </div>
-        
+      
+      <!-- Estadísticas -->
+      <div class="stats-container">
+        <span class="total-students" id="studentCount">Total Estudiantes: 0</span>
+        <span class="stat-number" id="stat-riesgo-5">Riesgo Muy Alto (5+): 0</span>
+        <span class="stat-number" id="stat-riesgo-4">Riesgo Alto (4): 0</span>
+        <span class="stat-number" id="stat-riesgo-3">Riesgo Medio (3): 0</span>
+        <span class="stat-number" id="stat-riesgo-2">Riesgo Bajo (2): 0</span>
+        <span class="stat-number" id="stat-riesgo-1">Sin Riesgo (1): 0</span>
+      </div>
       
       <!-- Filtro -->
       <div class="filter-section">
@@ -96,7 +97,5 @@
         });
       });
     </script>
-    <script type="module" src="../Modules/period-career-select.js"></script>
-
 </body>
 </html>

@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -16,37 +17,36 @@
     })();
   </script>
 </head>
+
 <body>
-  <div id="navbar-container"></div>
-  <script src="../navbar.js" type="module"></script>
   <div class="container">
     <div class="header">
-      <!-- Bloque de título + selects -->
+      <div class="filter-section">
+        <label for="filter-input">Filtrar:</label>
+        <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
+      </div>
+      
+      <div class="filters-container">
+        <div class="period-select-container">
+          <label for="period-select"><strong>Seleccionar Periodo:</strong></label>
+          <select id="period-select"></select>
+          <span class="period-hint">El período se actualizará automáticamente al seleccionar uno.</span>
+        </div>
+
+        <div class="carrer-select-container">
+          <label for="carrer-select"><strong>Seleccionar Carrera:</strong></label>
+          <select id="carrer-select"></select>
+          <span class="carrer-hint">La carrera se actualizará automáticamente al seleccionar uno.</span>
+        </div>
+      </div>
+
       <div class="header-title-block">
         <h2 class="title">Seguimiento Académico</h2>
-        <!-- Descripción -->
         <div class="description-legend">
           Notificaciones a docente y estudiantes por 2da y 3era vez registrados
         </div>
-        <!-- <span id="current-period-label" class="period-label"></span> -->
-        <!-- Periodo actual -->
-        <div class="filters-container">
-          <div class="period-select-container">
-            <label for="period-select"><strong>Seleccionar Periodo:</strong></label>
-            <select id="period-select"></select>
-            <span class="period-hint">El período se actualizará automáticamente al seleccionar uno.</span>
-          </div>
-
-          <!-- Actualizar por carrera -->
-          <div class="carrer-select-container">
-            <label for="carrer-select"><strong>Seleccionar Carrera:</strong></label>
-            <select id="carrer-select"></select>
-            <span class="carrer-hint">La carrera se actualizará automáticamente al seleccionar uno.</span>
-          </div>
-        </div>
-        
       </div>
-      
+
       <!-- Estadísticas -->
       <div class="stats-container">
         <span class="total-students" id="total-students">Total Estudiantes: 0</span>
@@ -57,12 +57,6 @@
         <span class="stat-number" id="stat-riesgo-1">Sin Riesgo (1): 0</span>
       </div>
 
-      <!-- Filtro -->
-      <div class="filter-section">
-        <label for="filter-input">Filtrar:</label>
-        <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
-      </div>
-      
       <!-- Botones -->
       <div class="button-group">
         <button id="sendAcademicEmails" class="action-button">Enviar Correos</button>
@@ -92,11 +86,12 @@
   <script defer type="module" src="../indexeddb-storage.js"></script>
   <script defer type="module" src="./academic-tracking.js"></script>
   <script>
-      window.addEventListener('DOMContentLoaded', function () {
-        requestAnimationFrame(function () {
-          document.documentElement.classList.remove('no-theme-transitions');
-        });
+    window.addEventListener('DOMContentLoaded', function () {
+      requestAnimationFrame(function () {
+        document.documentElement.classList.remove('no-theme-transitions');
       });
-    </script>
+    });
+  </script>
 </body>
+
 </html>

@@ -9,7 +9,7 @@ const asNum = (v) => {
 };
 const normalizeFileName = (fileName) => fileName.replace(/\W+/g, "_");
 
-/* ===== Carga con “fallbacks” de claves comunes ===== */
+/* ===== Carga con "fallbacks" de claves comunes ===== */
 async function loadWithFallback(possibleKeys) {
   for (const k of possibleKeys) {
     const data = await loadData(k);
@@ -62,6 +62,12 @@ function destroyCharts(){
   chartNoVez = chartAprobReprob = chartHist = chartEstPorPeriodo = null;
 }
 
+/* ===== Variables globales para filtros ===== */
+let allData = [];
+let filteredData = [];
+let currentCareer = '';
+let currentSearchTerm = '';
+
 /* ===== Select de períodos ===== */
 async function populatePeriodSelect() {
   const select = document.getElementById('period-select');
@@ -75,6 +81,9 @@ async function populatePeriodSelect() {
     select.innerHTML = '';
     return null;
   }
+
+  // Guardar todos los datos para filtrar después
+  allData = data;
 
   const periods = Array.from(new Set(
     data.map(r => norm(r.PERIODO)).filter(Boolean)
@@ -100,16 +109,44 @@ async function populatePeriodSelect() {
     select.value = selected;
     localStorage.setItem('selectedPeriod', selected);
   }
+
+  // Poblar selector de carreras
+  populateCareerSelect(selected);
+  
   return selected;
+}
+
+/* ===== Poblar selector de carreras ===== */
+function populateCareerSelect(period) {
+  const select = document.getElementById('career-select');
+  if (!select) return;
+
+  // Filtrar datos por período seleccionado
+  const periodData = allData.filter(r => norm(r.PERIODO) === norm(period));
+  
+  // Obtener todas las carreras únicas
+  const careers = Array.from(new Set(
+    periodData.map(r => norm(r.CARRERA)).filter(Boolean)
+  )).sort();
+
+  // Actualizar selector
+  select.innerHTML = '<option value="">Todas las carreras</option>' + 
+    careers.map(c => `<option value="${c}">${c}</option>`).join('');
+
+  // Restaurar selección previa si existe
+  const savedCareer = localStorage.getItem('selectedCareer');
+  if (savedCareer && careers.includes(savedCareer)) {
+    select.value = savedCareer;
+    currentCareer = savedCareer;
+  }
 }
 
 /* ===== Estudiantes únicos por período (histórico) ===== */
 async function getStudentsByPeriod() {
-  const { data } = await loadWithFallback(KEYS_TOTAL);
-  if (!Array.isArray(data) || !data.length) return { labels: [], counts: [] };
+  if (!Array.isArray(allData) || !allData.length) return { labels: [], counts: [] };
 
   const map = new Map(); // PERIODO -> Set(IDENTIFICACION)
-  data.forEach(r => {
+  allData.forEach(r => {
     const per = norm(r.PERIODO);
     const id  = norm(r.IDENTIFICACION);
     if (!per || !id) return;
@@ -134,11 +171,30 @@ async function getStudentsByPeriod() {
   return { labels, counts };
 }
 
-/* ===== Data del período seleccionado ===== */
-async function getDataForSelectedPeriod(period) {
-  const { data } = await loadWithFallback(KEYS_TOTAL);
-  if (!data.length) return [];
-  return data.filter(r => norm(r.PERIODO) === norm(period));
+/* ===== Aplicar filtros ===== */
+function applyFilters() {
+  const period = document.getElementById('period-select').value;
+  
+  // Filtrar por período
+  filteredData = allData.filter(r => norm(r.PERIODO) === norm(period));
+  
+  // Filtrar por carrera si está seleccionada
+  if (currentCareer) {
+    filteredData = filteredData.filter(r => norm(r.CARRERA) === currentCareer);
+  }
+  
+  // Filtrar por término de búsqueda si existe
+  if (currentSearchTerm) {
+    const searchTerm = currentSearchTerm.toLowerCase();
+    filteredData = filteredData.filter(r => 
+      norm(r.MATERIA).toLowerCase().includes(searchTerm) ||
+      norm(r.DOCENTE).toLowerCase().includes(searchTerm) ||
+      norm(r.IDENTIFICACION).toLowerCase().includes(searchTerm) ||
+      norm(r.ESTUDIANTE).toLowerCase().includes(searchTerm)
+    );
+  }
+  
+  return filteredData;
 }
 
 /* ===== Agregados generales ===== */
@@ -271,7 +327,7 @@ async function renderCharts(m) {
   chartNoVez = new Chart(document.getElementById('chartNoVez'), {
     type: 'bar',
     data: {
-      labels: ['1', '2', ''],
+      labels: ['1', '2', '3'],
       datasets: [{ label: 'Conteo', data: [m.vezCounts['1'], m.vezCounts['2'], m.vezCounts['3']] }]
     },
     options: {
@@ -397,8 +453,7 @@ function renderTables(m, topDocentes) {
 
 /* ===== Carga principal ===== */
 async function loadReport() {
-  const selected = document.getElementById('period-select').value;
-  const rows = await getDataForSelectedPeriod(selected);
+  const rows = applyFilters();
 
   if (!Array.isArray(rows) || !rows.length) {
     destroyCharts();
@@ -427,8 +482,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-print').addEventListener('click', () => {
     window.print();
   });
+  
+  // Evento para cambio de período
   document.getElementById('period-select').addEventListener('change', (e) => {
     localStorage.setItem('selectedPeriod', e.target.value);
+    populateCareerSelect(e.target.value);
+    loadReport();
+  });
+  
+  // Evento para cambio de carrera
+  document.getElementById('career-select').addEventListener('change', (e) => {
+    currentCareer = e.target.value;
+    localStorage.setItem('selectedCareer', currentCareer);
+    loadReport();
+  });
+  
+  // Evento para búsqueda
+  document.getElementById('search-input').addEventListener('input', (e) => {
+    currentSearchTerm = e.target.value;
+    loadReport();
+  });
+  
+  // Evento para limpiar búsqueda
+  document.getElementById('clear-search').addEventListener('click', () => {
+    document.getElementById('search-input').value = '';
+    currentSearchTerm = '';
     loadReport();
   });
 

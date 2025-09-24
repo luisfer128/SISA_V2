@@ -244,7 +244,7 @@ def api_get_carreras(facultad_cod):
 @app.post('/upload')
 @require_login
 def subir_archivo():
-    """Subir archivo - verificar permisos según rol"""
+    """Subir archivo - TODOS los usuarios solo pueden subir a su facultad asignada"""
     user = request.current_user
     user_role = user.get('rolNombre', '').lower()
 
@@ -256,18 +256,30 @@ def subir_archivo():
     if not archivo or archivo.filename.strip() == '':
         return jsonify({'error': 'No se envió archivo'}), 400
 
+    # CAMBIO CRÍTICO: Incluso admin está limitado a su facultad asignada
     facultad_cod = request.form.get('facultadCod') or request.args.get('facultadCod')
-    if not facultad_cod:
-        return jsonify({'error': 'FacultadCod es requerido'}), 400
 
-    # Verificar permisos de facultad
-    if user_role != 'admin' and facultad_cod != user['facultadCod']:
-        return jsonify({'error': 'Solo puedes subir archivos a tu facultad'}), 403
+    # Verificar parámetro override para admin
+    override_facultad = request.args.get('override_facultad')
+
+    if user_role == 'admin' and override_facultad == 'true':
+        # Admin con override puede subir a cualquier facultad
+        if not facultad_cod:
+            return jsonify({'error': 'FacultadCod es requerido'}), 400
+        print(f"🔧 Admin override upload to faculty: {facultad_cod}")
+    else:
+        # TODOS los usuarios (incluso admin normal) solo pueden subir a su facultad
+        if facultad_cod and facultad_cod != user['facultadCod']:
+            return jsonify({
+                               'error': f'Solo puedes subir archivos a tu facultad asignada ({user["facultadCod"]}). Facultad solicitada: {facultad_cod}'}), 403
+
+        facultad_cod = user['facultadCod']  # Forzar uso de facultad del usuario
+        print(f"🔒 Standard upload to user's faculty: {facultad_cod}")
 
     try:
         guardar_archivo_excel(archivo, facultad_cod)
         return jsonify({
-            'message': f'Archivo "{archivo.filename}" guardado correctamente',
+            'message': f'Archivo "{archivo.filename}" guardado correctamente en facultad {facultad_cod}',
             'facultadCod': facultad_cod
         }), 200
     except Exception as e:
@@ -277,58 +289,106 @@ def subir_archivo():
 @app.get('/files')
 @require_login
 def listar_archivos():
-    """Listar archivos según permisos del usuario"""
+    """Listar archivos según permisos del usuario - TODOS los usuarios ven solo archivos de su facultad"""
     user = request.current_user
     user_role = user.get('rolNombre', '').lower()
+    user_facultad = user.get('facultadCod')
 
-    # Determinar qué archivos puede ver
-    if user_role == 'admin':
-        # Admin puede ver archivos de cualquier facultad
+    print(f"📂 Files request: user={user.get('usuario')}, role={user_role}, facultad={user_facultad}")
+
+    # CAMBIO CRÍTICO: TODOS los usuarios (incluso admin) ven solo archivos de su facultad
+    # Solo permitir override si el admin explícitamente pasa un parámetro especial
+    override_facultad = request.args.get('override_facultad')
+
+    if user_role == 'admin' and override_facultad == 'true':
+        # Solo si el admin explícitamente quiere ver todas las facultades
         facultad_filter = request.args.get('facultadCod')
+        print(f"🔧 Admin override mode: facultad_filter={facultad_filter or 'ALL'}")
     else:
-        # Otros usuarios solo ven archivos de su facultad
-        facultad_filter = user['facultadCod']
+        # TODOS los usuarios (incluso admin) ven solo archivos de su facultad asignada
+        facultad_filter = user_facultad
+        print(f"🔒 Standard mode: usando facultad del usuario = {facultad_filter}")
 
     try:
         archivos = listar_archivos_por_facultad(facultad_filter)
+
+        print(f"✅ Found {len(archivos)} files for facultad {facultad_filter}")
+
+        # Si no hay archivos para la facultad del usuario
+        if len(archivos) == 0:
+            mensaje = f'La facultad {user_facultad} aún no cuenta con archivos subidos'
+            print(f"⚠️ {mensaje}")
+            return jsonify({
+                'archivos': [],
+                'facultadFiltro': facultad_filter,
+                'total': 0,
+                'userRole': user_role,
+                'userFacultad': user_facultad,
+                'mensaje': mensaje
+            })
+
+        # Log detallado de archivos encontrados
+        for archivo in archivos[:3]:  # Solo primeros 3 para no saturar logs
+            print(f"📄 File: {archivo['nombre']} (facultad: {archivo['facultadCod']})")
+
         return jsonify({
             'archivos': archivos,
             'facultadFiltro': facultad_filter,
             'total': len(archivos),
-            'userRole': user_role
+            'userRole': user_role,
+            'userFacultad': user_facultad
         })
     except Exception as e:
-        return jsonify({'error': f'Error al listar: {e}'}), 500
+        print(f"❌ Error listing files: {e}")
+        return jsonify({'error': f'Error al listar archivos: {e}'}), 500
 
 
 @app.get('/download/<int:archivo_id>')
 @require_login
 def descargar_archivo(archivo_id):
-    """Descargar archivo con verificación de permisos"""
+    """Descargar archivo - TODOS los usuarios solo pueden descargar archivos de su facultad"""
     user = request.current_user
     user_role = user.get('rolNombre', '').lower()
+    user_facultad = user['facultadCod']
+
+    print(
+        f"📥 Download request: user={user['usuario']}, role={user_role}, facultad={user_facultad}, archivo_id={archivo_id}")
 
     try:
-        # Verificar que el archivo existe y obtener info
         conn = conectar()
         cur = conn.cursor()
-        cur.execute("""
-            SELECT NombreArchivo, TipoMime, Datos, FacultadCod 
-            FROM ArchivosExcel 
-            WHERE Id = ?
-        """, (archivo_id,))
+
+        # CAMBIO CRÍTICO: Incluso admin está restringido a su facultad
+        # Solo permitir override con parámetro especial
+        override_facultad = request.args.get('override_facultad')
+
+        if user_role == 'admin' and override_facultad == 'true':
+            # Admin con override puede descargar cualquier archivo
+            cur.execute("""
+                SELECT NombreArchivo, TipoMime, Datos, FacultadCod 
+                FROM ArchivosExcel 
+                WHERE Id = ?
+            """, (archivo_id,))
+            print("🔧 Admin override: no faculty restriction")
+        else:
+            # TODOS los usuarios (incluso admin normal) solo archivos de su facultad
+            cur.execute("""
+                SELECT NombreArchivo, TipoMime, Datos, FacultadCod 
+                FROM ArchivosExcel 
+                WHERE Id = ? AND FacultadCod = ?
+            """, (archivo_id, user_facultad))
+            print(f"🔒 Faculty restricted download: archivo {archivo_id} para facultad {user_facultad}")
+
         archivo_info = cur.fetchone()
         cur.close()
         conn.close()
 
         if not archivo_info:
-            return jsonify({'error': 'Archivo no encontrado'}), 404
+            print(f"❌ File {archivo_id} not found or access denied for faculty {user_facultad}")
+            return jsonify({'error': 'Archivo no encontrado o sin permisos para descargarlo'}), 404
 
         nombre, tipo, contenido, archivo_facultad = archivo_info
-
-        # Verificar permisos
-        if user_role != 'admin' and archivo_facultad != user['facultadCod']:
-            return jsonify({'error': 'No tienes permisos para descargar este archivo'}), 403
+        print(f"✅ Download authorized: {nombre} (faculty: {archivo_facultad}) for user {user['usuario']}")
 
         bio = BytesIO(contenido)
         return send_file(
@@ -337,8 +397,10 @@ def descargar_archivo(archivo_id):
             download_name=nombre,
             mimetype=tipo or 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+
     except Exception as e:
-        return jsonify({'error': f'Error al descargar: {e}'}), 500
+        print(f"❌ Download error: {e}")
+        return jsonify({'error': f'Error al descargar archivo: {str(e)}'}), 500
 
 
 @app.delete('/delete/by-name/<string:filename>')
@@ -383,7 +445,8 @@ def eliminar_archivo(filename):
 
 # ======================= PLANTILLAS ===========================
 @app.get('/plantillas')
-@require_login
+@require_login  # ✅ Agregar este decorador
+@require_role('admin', 'coordinador', 'rector', 'decano')  # ✅ Agregar más roles permitidos
 def get_plantillas():
     try:
         tipo = request.args.get('tipo', 'seguimiento')
@@ -397,7 +460,8 @@ def get_plantillas():
 
 
 @app.post('/plantillas')
-@require_role('admin', 'coordinador', 'decano')
+@require_login  # ✅ Agregar este decorador OBLIGATORIO
+@require_role('admin', 'coordinador', 'rector', 'decano')  # ✅ Agregar más roles permitidos
 def update_plantillas():
     try:
         datos = request.get_json(silent=True) or {}
@@ -410,14 +474,14 @@ def update_plantillas():
         }
 
         guardar_plantillas_por_tipo(plantillas_data, tipo)
-        return jsonify({'message': f'Plantillas actualizadas correctamente'})
+        return jsonify({'message': f'Plantillas de tipo "{tipo}" actualizadas correctamente'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 # ======================= CORREO AUTORIDAD ===========================
 @app.get('/correo-autoridad')
-@require_login
+@require_login  # ✅ Agregar este decorador
 def get_correo_autoridad_endpoint():
     try:
         correo = obtener_correo_autoridad()
@@ -427,7 +491,8 @@ def get_correo_autoridad_endpoint():
 
 
 @app.post('/correo-autoridad')
-@require_role('admin', 'coordinador', 'decano')
+@require_login  # ✅ Agregar este decorador OBLIGATORIO
+@require_role('admin', 'coordinador', 'decano', 'rector')  # ✅ Agregar más roles permitidos
 def update_correo_autoridad_endpoint():
     try:
         datos = request.get_json(silent=True) or {}
@@ -450,7 +515,6 @@ def update_correo_autoridad_endpoint():
             return jsonify({'error': 'Error al actualizar correo'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
 
 # ======================= USUARIOS ===========================
 @app.get("/usuarios")

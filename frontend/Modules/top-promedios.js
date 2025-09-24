@@ -2,44 +2,22 @@
 import { loadData } from '../indexeddb-storage.js';
 
 const KEY = 'academicTrackingData_REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL_TOTAL_xlsx';
-
-// Cantidad esperada de materias por nivel y carrera
-const nivelMateriasED  = {1:7, 2:7, 3:7, 4:6, 5:5, 6:5, 7:5, 8:5};
-const nivelMateriasPAF = {1:7, 2:7, 3:7, 4:5, 5:5, 6:4, 7:4, 8:6, 9:4};
-
 const carreras = {
-  'ENTRENAMIENTO DEPORTIVO': { alias: 'ED',  niveles: nivelMateriasED  },
-  'PEDAGOGÍA DE LA ACTIVIDAD FÍSICA Y DEPORTE': { alias: 'PAF', niveles: nivelMateriasPAF }
+  'ENTRENAMIENTO DEPORTIVO': { alias: 'ED', niveles: {1:7, 2:7, 3:7, 4:6, 5:5, 6:5, 7:5, 8:5} },
+  'PEDAGOGÍA DE LA ACTIVIDAD FÍSICA Y DEPORTE': { alias: 'PAF', niveles: {1:7, 2:7, 3:7, 4:6, 5:6, 6:5, 7:5, 8:6, 9:4} }
 };
 
-/* ================= Helpers ================= */
 const norm = (v) => (v ?? '').toString().trim();
-const asNum = (v) => {
-  const n = Number((v ?? '').toString().replace(',', '.'));
-  return Number.isFinite(n) ? n : null;
-};
+const asNum = (v) => { const n = Number((v ?? '').toString().replace(',', '.')); return Number.isFinite(n) ? n : null; };
+const groupBy = (arr, fn) => arr.reduce((acc, item) => { const key = fn(item); (acc[key] ||= []).push(item); return acc; }, {});
 
-function groupBy(arr, fn) {
-  return arr.reduce((acc, item) => {
-    const key = fn(item);
-    (acc[key] ||= []).push(item);
-    return acc;
-  }, {});
-}
-
-// Intento robusto para ordenar periodos (cae a orden alfabético desc si no reconoce patrón)
 function sortPeriodosDesc(periodos) {
-  // Ejemplos soportados: "2024-2025 I", "2024-2025 II", "2025-I", "2025 II", etc.
   const roman = { 'I':1, 'II':2, 'III':3, 'IV':4 };
   const parse = (p) => {
     const s = norm(p);
-    // extrae años y término si existe
     const m = s.match(/(?:(\d{4})(?:\s*[-/]\s*(\d{4}))?)\s*([IVX]+|\bI{1,3}\b|\bII\b|\bIII\b)?$/i);
     if (!m) return { y1: s, y2: '', t: 0, raw: s };
-    const y1 = Number(m[1]) || 0;
-    const y2 = Number(m[2]) || y1;
-    const tRaw = norm(m[3] || '');
-    const t = roman[tRaw] || 0;
+    const y1 = Number(m[1]) || 0, y2 = Number(m[2]) || y1, t = roman[norm(m[3] || '')] || 0;
     return { y1, y2, t, raw: s };
   };
   return [...periodos].sort((a, b) => {
@@ -48,7 +26,6 @@ function sortPeriodosDesc(periodos) {
   });
 }
 
-/* =============== Núcleo de Top Promedios (filtrado por periodo) =============== */
 async function initTopPromedios() {
   const data = await loadData(KEY);
   const container = document.getElementById('top-promedios-container');
@@ -59,22 +36,12 @@ async function initTopPromedios() {
     return;
   }
 
-  // 1) Construye lista de periodos únicos y ordénalos
-  const periodosSet = new Set(data.map(r => norm(r["PERIODO"])).filter(Boolean));
-  const periodos = sortPeriodosDesc([...periodosSet]);
-
-  // 2) Pinta opciones en el <select>
+  const periodos = sortPeriodosDesc([...new Set(data.map(r => norm(r["PERIODO"])).filter(Boolean))]);
   periodSelect.innerHTML = periodos.map(p => `<option value="${p}">${p}</option>`).join('');
-  const defaultPeriodo = periodos[0]; // más reciente
-  periodSelect.value = defaultPeriodo;
+  periodSelect.value = periodos[0];
 
-  // 3) Render inicial con el periodo por defecto
-  renderForPeriodo(data, defaultPeriodo);
-
-  // 4) Re-render al cambiar el periodo (no se toca el almacenamiento global)
-  periodSelect.addEventListener('change', () => {
-    renderForPeriodo(data, periodSelect.value);
-  });
+  renderForPeriodo(data, periodos[0]);
+  periodSelect.addEventListener('change', () => renderForPeriodo(data, periodSelect.value));
 }
 
 function renderForPeriodo(allData, periodoSeleccionado) {
@@ -82,47 +49,35 @@ function renderForPeriodo(allData, periodoSeleccionado) {
   const agrupados = groupBy(data, row => norm(row["IDENTIFICACION"]));
   const resultados = {};
 
-  for (const [id, materias] of Object.entries(agrupados)) {
-    if (!materias.length) continue;
+  Object.entries(agrupados).forEach(([id, materias]) => {
+    if (!materias.length) return;
 
-    const carrera   = norm(materias[0]["CARRERA"]);
-    const nivel     = norm(materias[0]["NIVEL"]);
-    const noVez     = asNum(materias[0]["NO. VEZ"]);
-    const estudiante= `${norm(materias[0]["APELLIDOS"])} ${norm(materias[0]["NOMBRES"])}`;
-    const correos   = [norm(materias[0]["CORREO_INSTITUCIONAL"]), norm(materias[0]["CORREO_PERSONAL"])].filter(Boolean).join('<br>');
-
-    if (!carreras[carrera]) continue;
-    const { alias, niveles } = carreras[carrera];
-    const numEsperado = niveles[nivel];
-
-    // Criterios
-    if (!numEsperado || noVez !== 1) continue;
-    const todasNivel = materias.every(r => norm(r["NIVEL"]) === nivel);
-    if (!todasNivel) continue;
-    if (materias.length !== numEsperado) continue;
+    const row = materias[0];
+    const carrera = norm(row["CARRERA"]), nivel = norm(row["NIVEL"]);
+    const carreraInfo = carreras[carrera];
+    
+    if (!carreraInfo || asNum(row["NO. VEZ"]) !== 1) return;
+    
+    const numEsperado = carreraInfo.niveles[nivel];
+    if (!numEsperado || !materias.every(r => norm(r["NIVEL"]) === nivel) || materias.length !== numEsperado) return;
 
     const proms = materias.map(m => asNum(m["PROMEDIO"])).filter(n => n !== null);
-    if (proms.length !== numEsperado) continue;
+    if (proms.length !== numEsperado) return;
 
-    const promGeneral = (proms.reduce((a, b) => a + b, 0) / proms.length).toFixed(2);
-
-    // MA / VE porcentajes desde GRUPO/PARALELO
+    const promGeneral = (proms.reduce((a, b) => a + b) / proms.length).toFixed(2);
     const grupoParalelos = materias.map(m => norm(m["GRUPO/PARALELO"]));
     const total = grupoParalelos.length;
-    const maCount = grupoParalelos.filter(g => g.includes("MA")).length;
-    const veCount = grupoParalelos.filter(g => g.includes("VE")).length;
-    const maPorcentaje = total > 0 ? `${((maCount / total) * 100).toFixed(2)}%` : "NO REGISTRADO%";
-    const vePorcentaje = total > 0 ? `${((veCount / total) * 100).toFixed(2)}%` : "NO REGISTRADO%";
+    const calcPorcentaje = (tipo) => total > 0 ? `${((grupoParalelos.filter(g => g.includes(tipo)).length / total) * 100).toFixed(2)}%` : "NO REGISTRADO%";
 
-    const key = `${alias} - Nivel ${nivel}`;
+    const key = `${carreraInfo.alias} - Nivel ${nivel}`;
     (resultados[key] ||= []).push({
       id,
-      nombre: estudiante,
-      correo: correos,
-      grupo: `<strong>MA:</strong> ${maPorcentaje}<br><strong>VE:</strong> ${vePorcentaje}`,
+      nombre: `${norm(row["APELLIDOS"])} ${norm(row["NOMBRES"])}`,
+      correo: [norm(row["CORREO_INSTITUCIONAL"]), norm(row["CORREO_PERSONAL"])].filter(Boolean).join('<br>'),
+      grupo: `<strong>MA:</strong> ${calcPorcentaje("MA")}<br><strong>VE:</strong> ${calcPorcentaje("VE")}`,
       promedio: promGeneral
     });
-  }
+  });
 
   renderResultados(resultados, periodoSeleccionado);
 }
@@ -149,11 +104,8 @@ function renderResultados(resultados, periodoLabel) {
   }
 
   keysOrdenadas.forEach(key => {
-    const lista = resultados[key];
-    lista.sort((a, b) => parseFloat(b.promedio) - parseFloat(a.promedio));
-    const top5 = lista.slice(0, 5);
-
-    const tabla = `
+    const top5 = resultados[key].sort((a, b) => parseFloat(b.promedio) - parseFloat(a.promedio)).slice(0, 5);
+    container.innerHTML += `
       <h2>${key}</h2>
       <table>
         <thead>
@@ -177,7 +129,6 @@ function renderResultados(resultados, periodoLabel) {
         </tbody>
       </table>
     `;
-    container.innerHTML += tabla;
   });
 }
 

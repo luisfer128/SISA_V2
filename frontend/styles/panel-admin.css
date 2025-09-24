@@ -469,7 +469,7 @@ table.admin-table tbody tr:nth-child(even):hover {
   background: linear-gradient(135deg, var(--primary) 0%, color-mix(in srgb, var(--primary) 85%, black) 100%);
   color: white;
   border: none;
-  padding: 10px 16px;
+  padding: 10px 13px;
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;

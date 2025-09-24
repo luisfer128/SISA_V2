@@ -22,16 +22,31 @@
   </script>
 </head>
 <body>
-  <div id="navbar-container"></div>
-  <script src="../navbar.js" type="module"></script>
   <div class="page-container">
     <header class="header">
       <h1 class="title"><i class="fa-solid fa-chart-line"></i> Reportes generales</h1>
       <p class="subtitle">Resumen visual del <strong>REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL_TOTAL</strong></p>
       <div class="toolbar">
-        <div class="period-select-container">
-          <label for="period-select" class="label"><strong>Periodo:</strong></label>
-          <select id="period-select"></select>
+        <div class="filters-container">
+          <div class="filter-group">
+            <label for="period-select" class="label"><strong>Periodo:</strong></label>
+            <select id="period-select"></select>
+          </div>
+          <div class="filter-group">
+            <label for="career-select" class="label"><strong>Carrera:</strong></label>
+            <select id="career-select">
+              <option value="">Todas las carreras</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="search-input" class="label"><strong>Buscar:</strong></label>
+            <div class="search-container">
+              <input type="text" id="search-input" placeholder="Materia, estudiante, docente...">
+              <button id="clear-search" class="clear-search-btn">
+                <i class="fa-solid fa-times"></i>
+              </button>
+            </div>
+          </div>
         </div>
         <div class="actions">
           <button id="btn-back" class="btn secondary">
