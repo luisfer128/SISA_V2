@@ -75,6 +75,18 @@ main{ padding:2rem; }
   padding:.8rem 1rem; border-radius:8px; box-shadow: var(--card-shadow);
 }
 
+/* ===== Links en tablas ===== */
+.table-link {
+  color: var(--ink);        /* negro en modo claro, blanco en modo oscuro */
+  text-decoration: none;    /* sin subrayado */
+  font-weight: 500;
+}
+
+.table-link:hover {
+  text-decoration: underline;  /* opcional: subrayado al pasar el mouse */
+  color: var(--accent);        /* azul de acento al pasar el mouse */
+}
+
 /* ===== Secciones ===== */
 h2{
   margin-top:2rem; color: var(--title); font-size:1.3rem; font-weight:600;

@@ -30,15 +30,17 @@ body.dark-mode{
 /* ===== Filtros (Periodo, Carrera, Materia) ===== */
 .filters-container {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 16px;
-  align-items: center;
+  align-items: flex-end;
 }
 .filter-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 180px;
+  min-width: 180px;  
+  max-width: 440px;  
+  flex: 0 0 auto;   
 }
 .filter-group .label {
   font-weight: 600;
@@ -70,124 +72,6 @@ body.dark-mode{
   outline:none;
   border-color:var(--c1);
   box-shadow:0 0 0 3px rgba(16,149,201,.25);
-}
-/* ===== Search control dentro del filter-group ===== */
-.filter-group .search-container {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 520px; /* ajusta según tu layout */
-  position: relative;
-}
-/* Input de búsqueda: icono a la izquierda y padding para el clear button a la derecha */
-#search-input {
-  flex: 1;
-  padding: 10px 42px 10px 38px; /* left padding para icono, right para botón clear */
-  border-radius: 8px;
-  border: 1.5px solid #ddd;
-  background: #fff;
-  color: #333;
-  font-size: 0.95rem;
-  font-weight: 500;
-  box-shadow: 0 2px 6px rgba(0,0,0,.05);
-  transition: border-color .18s ease, box-shadow .18s ease, transform .12s ease;
-  /* Icono de lupa como background */
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg fill='%23666' height='18' viewBox='0 0 24 24' width='18' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 2a8 8 0 105.293 14.293l4.707 4.707 1.414-1.414-4.707-4.707A8 8 0 0010 2zm0 2a6 6 0 110 12A6 6 0 0110 4z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: 12px center;
-  background-size: 18px;
-}
-/* Hover / focus */
-#search-input:hover { border-color: #aaa; }
-#search-input:focus {
-  outline: none;
-  border-color: var(--c1);
-  box-shadow: 0 0 0 4px rgba(16,149,201,0.10);
-}
-/* Botón para limpiar búsqueda - VERSIÓN MEJORADA */
-.clear-search-btn {
-  position: absolute;
-  right: 8px;
-  appearance: none;
-  border: none;
-  background: transparent;
-  padding: 6px;
-  margin: 0;
-  border-radius: 50%;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  transition: all 0.2s ease;
-  font-size: 0.95rem;
-  width: 28px;
-  height: 28px;
-  z-index: 2;
-}
-
-/* Icon dentro del botón */
-.clear-search-btn i {
-  font-size: 0.85rem;
-  line-height: 1;
-  transition: transform 0.2s ease;
-}
-
-/* Hover para el botón */
-.clear-search-btn:hover {
-  background: rgba(16, 149, 201, 0.12);
-  color: var(--c1);
-  transform: scale(1.05);
-}
-
-/* Efecto al hacer clic */
-.clear-search-btn:active {
-  transform: scale(0.95);
-}
-
-/* Efecto hover para el icono */
-.clear-search-btn:hover i {
-  transform: rotate(90deg);
-}
-
-/* Ocultar / desactivar botón cuando el input está vacío */
-#search-input:placeholder-shown + .clear-search-btn {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(6px) scale(0.8);
-}
-
-/* Cuando hay texto, mostrar botón con animación */
-#search-input:not(:placeholder-shown) + .clear-search-btn {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0) scale(1);
-}
-
-/* Modo oscuro - ajustes específicos */
-.dark-mode .clear-search-btn {
-  color: #9ca3af;
-}
-
-.dark-mode .clear-search-btn:hover {
-  background: rgba(147, 197, 253, 0.15);
-  color: #93c5fd;
-}
-
-/* Mejora para el contenedor de búsqueda */
-.search-container {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 520px;
-  position: relative;
-}
-
-/* Ajuste del padding del input para el botón */
-#search-input {
-  padding: 10px 38px 10px 38px; /* Más espacio a la derecha para el botón */
 }
 
 .kpi-label { color:#475569 !important; }
@@ -243,21 +127,12 @@ body.dark-mode{
   border-color: #2563eb;
   box-shadow: 0 0 0 3px rgba(37,99,235,.25);
 }
-/* Dark mode */
-.dark-mode #search-input {
+.dark-mode #materia-select{
   background: #0b1220;
   color: #e5e7eb;
   border: 1.5px solid #334155;
   box-shadow: none;
-  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg fill='%23666' height='18' viewBox='0 0 24 24' width='18' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 2a8 8 0 105.293 14.293l4.707 4.707 1.414-1.414-4.707-4.707A8 8 0 0010 2zm0 2a6 6 0 110 12A6 6 0 0110 4z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: 12px center;
 }
-.dark-mode .clear-search-btn {
-  color: var(--muted);
-}
-.dark-mode .clear-search-btn:hover { background: rgba(255,255,255,0.03); color: #93c5fd; }
-
 
 /* Alertas */
 .dark-mode .no-data{
@@ -323,6 +198,7 @@ body {
 
 .content{ margin-top:16px; }
 
+
 /* Tarjeta especial para gráfico de NO. VEZ horizontal */
 .card-vez {
   background: var(--card-bg);
@@ -359,11 +235,24 @@ body {
 .card h3{
   margin:0 0 12px; font-size:1.1rem; display:flex; align-items:center; gap:10px;
 }
-
+/* Card pequeña (1 columna) */
+.card.small {
+  grid-column: span 1;
+}
+/* Card que ocupa 2 columnas */
+.card.wide-2 {
+  grid-column: span 2;
+}
 .card.wide{
   grid-column: 1 / -1;
 }
-
+#chartGenero, #chartEtnia {
+  width: 100% !important;
+  height: 360px !important;
+}
+#chartEtnia {
+  height: 360px !important;
+}
 .kpi{
   display:flex; gap:14px; align-items:center;
 }

@@ -20,6 +20,7 @@ async function loadWithFallback(possibleKeys) {
   return { key: null, data: [] };
 }
 
+
 /* ===== Claves posibles para TOTAL y PARCIAL ===== */
 const KEYS_TOTAL = [
   'academicTrackingData_REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL_TOTAL_xlsx',
@@ -31,6 +32,13 @@ const KEYS_PARCIAL = [
   'academicTrackingData_REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL_xlsx',
   `academicTrackingData_${normalizeFileName('REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL.xlsx')}`,
   'academicTrackingData_REPORTE_RECORD_CALIFICACIONES_POR_PARCIAL'
+];
+
+const KEYS_NOMINA = [
+  'academicTrackingData_REPORTE_NOMINA_ESTUDIANTES_MATRICULADOS_LEGALIZADOS',
+  'REPORTE_NOMINA_ESTUDIANTES_MATRICULADOS_LEGALIZADOS',
+  'academicTrackingData_REPORTE_NOMINA_ESTUDIANTES_MATRICULADOS_LEGALIZADOS_xlsx',
+  'REPORTE_NOMINA_ESTUDIANTES_MATRICULADOS_LEGALIZADOS_xlsx'
 ];
 
 /* ===== Orden de períodos ===== */
@@ -50,23 +58,39 @@ function pickMostRecentPeriod(periods) {
     })[0] || '';
 }
 
+
 /* ===== Estado Charts ===== */
-let chartNoVez, chartAprobReprob, chartHist, chartEstPorPeriodo;
+let chartNoVez, chartAprobReprob, chartHist, chartEstPorPeriodo, chartGenero, chartEtnia;
 
 function destroyCharts(){
-  [chartNoVez, chartAprobReprob, chartHist, chartEstPorPeriodo].forEach(ch => {
+  [chartNoVez, chartAprobReprob, chartHist, chartEstPorPeriodo, chartGenero, chartEtnia].forEach(ch => {
     if (ch && typeof ch.destroy === 'function') {
       try { ch.destroy(); } catch {}
     }
   });
-  chartNoVez = chartAprobReprob = chartHist = chartEstPorPeriodo = null;
+  chartNoVez = chartAprobReprob = chartHist = chartEstPorPeriodo = chartGenero = chartEtnia = null;
 }
 
 /* ===== Variables globales para filtros ===== */
 let allData = [];
+let nominaData = [];
 let filteredData = [];
 let currentCareer = '';
-let currentSearchTerm = '';
+let currentMateria = '';
+
+
+/* ===== Cargar datos de nómina ===== */
+async function loadNominaData() {
+  console.log('Intentando cargar datos de nómina con claves:', KEYS_NOMINA);
+  const { key, data } = await loadWithFallback(KEYS_NOMINA);
+  nominaData = data || [];
+  console.log('Datos de nómina cargados:', {
+    key: key,
+    dataLength: nominaData.length,
+    firstRecord: nominaData[0] || null
+  });
+  return nominaData;
+}
 
 /* ===== Select de períodos ===== */
 async function populatePeriodSelect() {
@@ -84,6 +108,9 @@ async function populatePeriodSelect() {
 
   // Guardar todos los datos para filtrar después
   allData = data;
+
+  // Cargar datos de nómina
+  await loadNominaData();
 
   const periods = Array.from(new Set(
     data.map(r => norm(r.PERIODO)).filter(Boolean)
@@ -121,23 +148,49 @@ function populateCareerSelect(period) {
   const select = document.getElementById('career-select');
   if (!select) return;
 
-  // Filtrar datos por período seleccionado
   const periodData = allData.filter(r => norm(r.PERIODO) === norm(period));
-  
-  // Obtener todas las carreras únicas
-  const careers = Array.from(new Set(
-    periodData.map(r => norm(r.CARRERA)).filter(Boolean)
-  )).sort();
+  const careers = Array.from(new Set(periodData.map(r => norm(r.CARRERA)).filter(Boolean))).sort();
 
-  // Actualizar selector
-  select.innerHTML = '<option value="">Todas las carreras</option>' + 
+  select.innerHTML = '<option value="">Todas las carreras</option>' +
     careers.map(c => `<option value="${c}">${c}</option>`).join('');
 
-  // Restaurar selección previa si existe
   const savedCareer = localStorage.getItem('selectedCareer');
   if (savedCareer && careers.includes(savedCareer)) {
     select.value = savedCareer;
     currentCareer = savedCareer;
+  } else {
+    currentCareer = '';
+  }
+
+  // 👉 cuando cambie carrera, refrescamos materias
+  populateMateriaSelect(period, currentCareer);
+}
+
+/* ===== Poblar filtro de materias ===== */
+function populateMateriaSelect(period, career) {
+  const select = document.getElementById('materia-select');
+  if (!select) return;
+
+  // Filtrar por período y carrera
+  let rows = allData.filter(r => norm(r.PERIODO) === norm(period));
+  if (career) {
+    rows = rows.filter(r => norm(r.CARRERA) === career);
+  }
+
+  const materias = Array.from(new Set(
+    rows.map(r => norm(r.MATERIA || r.Materia || r.materia)).filter(Boolean)
+  )).sort();
+
+  select.innerHTML = '<option value="">Todas las materias</option>' +
+    materias.map(m => `<option value="${m}">${m}</option>`).join('');
+
+  // Restaurar selección previa
+  const savedMateria = localStorage.getItem('selectedMateria');
+  if (savedMateria && materias.includes(savedMateria)) {
+    select.value = savedMateria;
+    currentMateria = savedMateria;
+  } else {
+    currentMateria = '';
   }
 }
 
@@ -171,6 +224,109 @@ async function getStudentsByPeriod() {
   return { labels, counts };
 }
 
+/* ===== Función para obtener datos de género ===== */
+function getGenderDistribution(selectedPeriod) {
+  console.log('getGenderDistribution llamada con:', { selectedPeriod, nominaDataLength: nominaData.length });
+  
+  if (!nominaData.length) {
+    console.log('No hay datos de nómina disponibles');
+    return { labels: [], data: [], colors: [] };
+  }
+
+  // Mostrar una muestra de los datos para debug
+  if (nominaData.length > 0) {
+    console.log('Muestra de campos en nominaData[0]:', Object.keys(nominaData[0]));
+    console.log('Primer registro de nómina:', nominaData[0]);
+  }
+
+  // Filtrar por período si está disponible en los datos de nómina
+  let filteredNomina = nominaData;
+  if (selectedPeriod && nominaData.some(r => norm(r.PERIODO) === norm(selectedPeriod))) {
+    filteredNomina = nominaData.filter(r => norm(r.PERIODO) === norm(selectedPeriod));
+    console.log(`Filtrado por período ${selectedPeriod}: ${filteredNomina.length} registros`);
+  } else {
+    console.log(`⚠️ No hay registros para ${selectedPeriod}, usando todos los registros (${nominaData.length})`);
+  }
+
+  // Si hay filtro de carrera, aplicarlo también
+  if (currentCareer) {
+    filteredNomina = filteredNomina.filter(r => norm(r.CARRERA) === currentCareer);
+    console.log(`Filtrado por carrera ${currentCareer}: ${filteredNomina.length} registros`);
+  }
+
+  const genderCounts = {};
+  filteredNomina.forEach(r => {
+    // Intentar diferentes campos posibles
+    const gender = norm(r.SEXO || r.GENERO || r.GENDER || '').toUpperCase();
+    if (gender) {
+      // Normalizar valores comunes
+      let normalizedGender = gender;
+      if (gender === 'M' || gender === 'MASCULINO' || gender === 'HOMBRE') {
+        normalizedGender = 'MASCULINO';
+      } else if (gender === 'F' || gender === 'FEMENINO' || gender === 'MUJER') {
+        normalizedGender = 'FEMENINO';
+      }
+      genderCounts[normalizedGender] = (genderCounts[normalizedGender] || 0) + 1;
+    }
+  });
+
+  console.log('Conteos de género:', genderCounts);
+
+  const labels = Object.keys(genderCounts);
+  const data = Object.values(genderCounts);
+  const colors = labels.map((_, index) => {
+    const colorPalette = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF'];
+    return colorPalette[index % colorPalette.length];
+  });
+
+  return { labels, data, colors };
+}
+
+/* ===== Función para obtener datos de etnia ===== */
+function getEthnicityDistribution(selectedPeriod) {
+  console.log('getEthnicityDistribution llamada con:', { selectedPeriod, nominaDataLength: nominaData.length });
+  
+  if (!nominaData.length) {
+    console.log('No hay datos de nómina disponibles para etnia');
+    return { labels: [], data: [], colors: [] };
+  }
+
+  // Filtrar por período si está disponible en los datos de nómina
+  let filteredNomina = nominaData;
+  if (selectedPeriod && nominaData.some(r => norm(r.PERIODO) === norm(selectedPeriod))) {
+    filteredNomina = nominaData.filter(r => norm(r.PERIODO) === norm(selectedPeriod));
+    console.log(`Filtrado por período ${selectedPeriod}: ${filteredNomina.length} registros`);
+  } else {
+    console.log(`⚠️ No hay registros para ${selectedPeriod}, usando todos los registros (${nominaData.length})`);
+  }
+
+  // Si hay filtro de carrera, aplicarlo también
+  if (currentCareer) {
+    filteredNomina = filteredNomina.filter(r => norm(r.CARRERA) === currentCareer);
+    console.log(`Filtrado por carrera ${currentCareer}: ${filteredNomina.length} registros`);
+  }
+
+  const ethnicityCounts = {};
+  filteredNomina.forEach(r => {
+    // Intentar diferentes campos posibles
+    const ethnicity = norm(r.ETNIA || r.ETNICITY || '').toUpperCase();
+    if (ethnicity && ethnicity !== 'N/A' && ethnicity !== '' && ethnicity !== 'NULL') {
+      ethnicityCounts[ethnicity] = (ethnicityCounts[ethnicity] || 0) + 1;
+    }
+  });
+
+  console.log('Conteos de etnia:', ethnicityCounts);
+
+  const labels = Object.keys(ethnicityCounts);
+  const data = Object.values(ethnicityCounts);
+  const colors = labels.map((_, index) => {
+    const colorPalette = ['#FF9F43', '#10AC84', '#EE5A24', '#0ABDE3', '#5F27CD', '#FD79A8', '#FDCB6E'];
+    return colorPalette[index % colorPalette.length];
+  });
+
+  return { labels, data, colors };
+}
+
 /* ===== Aplicar filtros ===== */
 function applyFilters() {
   const period = document.getElementById('period-select').value;
@@ -182,16 +338,10 @@ function applyFilters() {
   if (currentCareer) {
     filteredData = filteredData.filter(r => norm(r.CARRERA) === currentCareer);
   }
-  
-  // Filtrar por término de búsqueda si existe
-  if (currentSearchTerm) {
-    const searchTerm = currentSearchTerm.toLowerCase();
-    filteredData = filteredData.filter(r => 
-      norm(r.MATERIA).toLowerCase().includes(searchTerm) ||
-      norm(r.DOCENTE).toLowerCase().includes(searchTerm) ||
-      norm(r.IDENTIFICACION).toLowerCase().includes(searchTerm) ||
-      norm(r.ESTUDIANTE).toLowerCase().includes(searchTerm)
-    );
+
+  // Filtrar por materia
+  if (currentMateria) {
+    filteredData = filteredData.filter(r => norm(r.MATERIA || r.Materia || r.materia) === currentMateria);
   }
   
   return filteredData;
@@ -323,11 +473,13 @@ function renderKPIs(m) {
 /* ===== Charts ===== */
 async function renderCharts(m) {
   destroyCharts();
+  
+  const selectedPeriod = document.getElementById('period-select').value;
 
   chartNoVez = new Chart(document.getElementById('chartNoVez'), {
     type: 'bar',
     data: {
-      labels: ['1', '2', '3'],
+      labels: ['1', '2', '3+'],
       datasets: [{ label: 'Conteo', data: [m.vezCounts['1'], m.vezCounts['2'], m.vezCounts['3']] }]
     },
     options: {
@@ -405,6 +557,102 @@ async function renderCharts(m) {
       scales: { y: { beginAtZero: true, ticks: { precision:0 } } }
     }
   });
+
+  // Gráfico de Género
+  const genderData = getGenderDistribution(selectedPeriod);
+  console.log('Datos de género:', genderData); // Debug
+  
+  const genderCanvas = document.getElementById('chartGenero');
+  if (genderCanvas && genderData.data.length > 0) {
+    chartGenero = new Chart(genderCanvas, {
+      type: 'doughnut',
+      data: {
+        labels: genderData.labels,
+        datasets: [{
+          data: genderData.data,
+          backgroundColor: genderData.colors,
+          borderWidth: 2,
+          borderColor: '#ffffff'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '50%',
+        plugins: {
+          legend: { 
+            position: 'bottom',
+            labels: {
+              padding: 20,
+              usePointStyle: true
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const total = ctx.dataset.data.reduce((sum, value) => sum + value, 0);
+                const percentage = total > 0 ? ((ctx.parsed / total) * 100).toFixed(1) : '0.0';
+                return ` ${ctx.label}: ${ctx.parsed.toLocaleString('es')} (${percentage}%)`;
+              }
+            }
+          }
+        }
+      }
+    });
+  } else {
+    console.log('No se puede crear gráfico de género:', {
+      canvas: !!genderCanvas,
+      dataLength: genderData.data.length,
+      nominaDataLength: nominaData.length
+    });
+  }
+
+  // Gráfico de Etnia (barras horizontales)
+  const ethnicityData = getEthnicityDistribution(selectedPeriod);
+  console.log('Datos de etnia:', ethnicityData); // Debug
+
+  const ethnicityCanvas = document.getElementById('chartEtnia');
+  if (ethnicityCanvas && ethnicityData.data.length > 0) {
+    chartEtnia = new Chart(ethnicityCanvas, {
+      type: 'bar',
+      data: {
+        labels: ethnicityData.labels,
+        datasets: [{
+          label: 'Estudiantes',
+          data: ethnicityData.data,
+          backgroundColor: ethnicityData.colors,
+          borderWidth: 1
+        }]
+      },
+      options: {
+        indexAxis: 'y', // 👉 barras horizontales
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => {
+                const total = ctx.dataset.data.reduce((sum, value) => sum + value, 0);
+                const percentage = total > 0 ? ((ctx.parsed.x / total) * 100).toFixed(1) : '0.0';
+                return ` ${ctx.label}: ${ctx.parsed.x.toLocaleString('es')} (${percentage}%)`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { beginAtZero: true, ticks: { precision: 0 } },
+          y: { ticks: { precision: 0 } }
+        }
+      }
+    });
+  } else {
+    console.log('No se puede crear gráfico de etnia:', {
+      canvas: !!ethnicityCanvas,
+      dataLength: ethnicityData.data.length,
+      nominaDataLength: nominaData.length
+    });
+  }
 }
 
 /* ===== Tablas ===== */
@@ -497,16 +745,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadReport();
   });
   
-  // Evento para búsqueda
-  document.getElementById('search-input').addEventListener('input', (e) => {
-    currentSearchTerm = e.target.value;
-    loadReport();
-  });
-  
-  // Evento para limpiar búsqueda
-  document.getElementById('clear-search').addEventListener('click', () => {
-    document.getElementById('search-input').value = '';
-    currentSearchTerm = '';
+  document.getElementById('materia-select')?.addEventListener('change', e => {
+    currentMateria = e.target.value || '';
+    localStorage.setItem('selectedMateria', currentMateria);
     loadReport();
   });
 

@@ -480,7 +480,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  elementos.backButton?.addEventListener('click', () => window.location.href = '../index.html');
+  elementos.backButton.addEventListener('click', () => window.location.href = '../index.html');
 
   // Filtrar datos
   const ESTADOS_PERMITIDOS = new Set(['APROBADA', 'REPROBADA']);
@@ -494,6 +494,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   );
 
   initStudentAutocomplete(dataFiltrada, elementos.studentFilter, buscar);
+  // -- Auto-búsqueda si la URL trae ?q=...
+  const urlParams = new URLSearchParams(window.location.search);
+  const qFromUrl = urlParams.get('q') || urlParams.get('id') || urlParams.get('student');
+
+  if (qFromUrl) {
+    elementos.studentFilter.value = decodeURIComponent(qFromUrl);
+    setTimeout(() => buscar(), 30);
+
+    // 🔥 Limpiar el parámetro de la URL después de usarlo
+    history.replaceState({}, document.title, window.location.pathname);
+  }
+
+
 
   // Calcular promedios generales por estudiante
   const estudiantesPorPeriodo = {};
@@ -785,5 +798,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   elementos.studentFilter.addEventListener('input', () => {
     if (elementos.studentFilter.value.trim() === '') showGeneralView();
   });
-  elementos.searchButton?.addEventListener('click', buscar);
+  elementos.searchButton.addEventListener('click', buscar);
 });

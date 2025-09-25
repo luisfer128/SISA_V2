@@ -120,8 +120,8 @@ function renderResultados(resultados, periodoLabel) {
         <tbody>
           ${top5.map(s => `
             <tr>
-              <td data-label="Identificación">${s.id}</td>
-              <td data-label="Nombre">${s.nombre}</td>
+              <td data-label="Identificación"><a class="table-link" href="/Modules/consulta-estudiante.html?q=${encodeURIComponent(s.id)}"title="Ver datos de ${s.nombre}">${s.id}</a></td>
+              <td data-label="Nombre"><a class="table-link" href="/Modules/consulta-estudiante.html?q=${encodeURIComponent(s.nombre)}"title="Ver datos de ${s.nombre}">${s.nombre}</a></td>
               <td data-label="Correo">${s.correo}</td>
               <td data-label="Grupo">${s.grupo}</td>
               <td data-label="Promedio General">${s.promedio}</td>

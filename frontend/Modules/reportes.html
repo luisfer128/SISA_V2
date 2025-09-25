@@ -22,6 +22,8 @@
   </script>
 </head>
 <body>
+  <div id="navbar-container"></div>
+  <script src="../navbar.js" type="module"></script>
   <div class="page-container">
     <header class="header">
       <h1 class="title"><i class="fa-solid fa-chart-line"></i> Reportes generales</h1>
@@ -39,14 +41,12 @@
             </select>
           </div>
           <div class="filter-group">
-            <label for="search-input" class="label"><strong>Buscar:</strong></label>
-            <div class="search-container">
-              <input type="text" id="search-input" placeholder="Materia, estudiante, docente...">
-              <button id="clear-search" class="clear-search-btn">
-                <i class="fa-solid fa-times"></i>
-              </button>
-            </div>
+            <label for="materia-select" class="label"><strong>Materia:</strong></label>
+            <select id="materia-select">
+              <option value="">Todas</option>
+            </select>
           </div>
+
         </div>
         <div class="actions">
           <button id="btn-back" class="btn secondary">
@@ -104,6 +104,17 @@
         <div class="card">
             <h3><i class="fa-solid fa-users"></i> Estudiantes por periodo</h3>
             <canvas id="chartEstPorPeriodo"></canvas>
+        </div>
+        <!-- Distribución por Género -->
+        <div class="card small-genero">
+          <h3><i class="fa-solid fa-venus-mars"></i> Distribución por Género</h3>
+          <canvas id="chartGenero"></canvas>
+        </div>
+
+        <!-- Distribución por Etnia -->
+        <div class="card wide-2">
+          <h3><i class="fa-solid fa-people-group"></i> Distribución por Etnia</h3>
+          <canvas id="chartEtnia"></canvas>
         </div>
 
         <!-- Histograma ocupa todo el ancho -->
