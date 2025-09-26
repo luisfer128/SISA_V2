@@ -18,7 +18,6 @@
 </head>
 <body>
   <div class="container">
-    <div class="header">
       <!-- Bloque de título + selects -->
        <div class="header-title-block">
           <h2 class="title">Control Parcial</h2>
@@ -27,22 +26,22 @@
             Estudiantes reprobados por asistencia o calificación hasta 1er. parcial
           </div>
         <!-- <span id="current-period-label" class="period-label"></span> -->
-        <!-- Periodo actual -->
-          <div class="filters-container">
-            <div class="period-select-container">
-              <label for="period-select"><strong>Seleccionar Periodo:</strong></label>
-              <select id="period-select"></select>
-              <span class="period-hint">El período se actualizará automáticamente al seleccionar uno.</span>
-            </div>
+    </div>
 
-            <!-- Actualizar por carrera -->
-            <div class="carrer-select-container">
-              <label for="carrer-select"><strong>Seleccionar Carrera:</strong></label>
-              <select id="carrer-select"></select>
-              <span class="carrer-hint">La carrera se actualizará automáticamente al seleccionar uno.</span>
-            </div>
-          </div>
-        </div>
+    <div class="header2">
+      <!-- Filtro -->
+      <div class="filter-section">
+        <label for="filter-input">Filtrar:</label>
+        <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
+      </div>
+      <!-- Botones -->
+      <div class="button-group">
+        <button id="sendAcademicEmails" class="action-button">Enviar Correos</button>
+        <button id="goToMenuButton" class="action-button secondary-button">Ir a Menú</button>
+      </div>
+    </div>
+
+    <div class="header">
       <!-- Estadísticas 1-->
       <div class="stats-container">
         <span id="total-students" class="total-students">Total de Estudiantes: 0</span>
@@ -56,18 +55,20 @@
           <span id="warn-count" class="count-badge count-badge--warn">⚠️: <strong>0</strong></span>
         </div>
       </div>
+      <!-- Periodo actual -->
+          <div class="filters-container">
+            <div class="period-select-container">
+              <label for="period-select"><strong>Seleccionar Periodo:</strong></label>
+              <select id="period-select"></select>
+            </div>
 
-      <!-- Filtro -->
-      <div class="filter-section">
-        <label for="filter-input">Filtrar:</label>
-        <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
+            <!-- Actualizar por carrera -->
+            <div class="carrer-select-container">
+              <label for="carrer-select"><strong>Seleccionar Carrera:</strong></label>
+              <select id="carrer-select"></select>
+            </div>
+          </div>
       </div>
-      <!-- Botones -->
-      <div class="button-group">
-        <button id="sendAcademicEmails" class="action-button">Enviar Correos</button>
-        <button id="goToMenuButton" class="action-button secondary-button">Ir a Menú</button>
-      </div>
-    </div>
 
     <table id="academic-tracking-table">
       <thead>

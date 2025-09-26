@@ -103,6 +103,17 @@ body.dark-mode {
   position: relative;
 }
 
+.header2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: end;
+  gap: 15px;
+  padding-bottom: 8px;
+  transition: border-color 0.3s ease;
+  position: relative;
+}
+
 .dark-mode .header { 
   border-bottom: 2px solid var(--card-border); 
 }
@@ -114,7 +125,6 @@ body.dark-mode {
   align-items: center;
   gap: 10px;
   order: 1;
-  margin-top: 120px;
 }
 
 .title {
@@ -238,7 +248,7 @@ body.dark-mode {
 }
 
 #estado-resumen {
-  margin-right: 165px;
+  margin-right: 815px;
 }
 
 .total-students {
@@ -559,7 +569,7 @@ td li::before {
 
   .button-group {
     justify-content: center;
-    flex-wrap: wrap;
+    /* flex-wrap: wrap; */
   }
 
   .title {

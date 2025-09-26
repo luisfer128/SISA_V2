@@ -353,6 +353,88 @@ async function syncFilesFromBackendToIndexedDB() {
   }
 }
 
+function initTooltips() {
+  const badges = document.querySelectorAll('.info-badge[data-tooltip]');
+  let currentTooltip = null;
+
+  badges.forEach(badge => {
+    badge.addEventListener('mouseenter', (e) => {
+      const tooltip = e.target.getAttribute('data-tooltip');
+      if (!tooltip) return;
+
+      // Crear tooltip
+      currentTooltip = document.createElement('div');
+      currentTooltip.className = 'tooltip-pop';
+      currentTooltip.textContent = tooltip;
+      document.body.appendChild(currentTooltip);
+
+      // Posicionar tooltip
+      positionTooltip(e.target, currentTooltip);
+      
+      // Mostrar con delay
+      setTimeout(() => {
+        if (currentTooltip) {
+          currentTooltip.style.opacity = '1';
+        }
+      }, 100);
+    });
+
+    badge.addEventListener('mouseleave', () => {
+      if (currentTooltip) {
+        currentTooltip.style.opacity = '0';
+        setTimeout(() => {
+          if (currentTooltip && currentTooltip.parentNode) {
+            document.body.removeChild(currentTooltip);
+          }
+          currentTooltip = null;
+        }, 120);
+      }
+    });
+  });
+}
+
+function positionTooltip(trigger, tooltip) {
+  const triggerRect = trigger.getBoundingClientRect();
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const viewportHeight = window.innerHeight;
+  const viewportWidth = window.innerWidth;
+
+  let top, left;
+  let position = 'top';
+
+  // Calcular posición vertical
+  if (triggerRect.top > tooltipRect.height + 10) {
+    // Mostrar arriba
+    top = triggerRect.top - tooltipRect.height - 10;
+    position = 'top';
+  } else {
+    // Mostrar abajo
+    top = triggerRect.bottom + 10;
+    position = 'bottom';
+  }
+
+  // Calcular posición horizontal (centrado)
+  left = triggerRect.left + (triggerRect.width / 2) - (tooltipRect.width / 2);
+
+  // Ajustar si se sale del viewport
+  if (left < 10) left = 10;
+  if (left + tooltipRect.width > viewportWidth - 10) {
+    left = viewportWidth - tooltipRect.width - 10;
+  }
+
+  tooltip.style.top = `${top}px`;
+  tooltip.style.left = `${left}px`;
+  tooltip.setAttribute('data-pos', position);
+}
+
+// Inicializar tooltips cuando el DOM esté listo
+document.addEventListener('DOMContentLoaded', function() {
+  // Tu código existente aquí...
+  
+  // Inicializar tooltips
+  initTooltips();
+});
+
 async function getSharedCorreoAutoridad() {
   try {
     const headers = await getAuthHeaders();

@@ -179,7 +179,7 @@ function renderTable(rows) {
 
   if (totalSpan) totalSpan.textContent = `Total de Materias: ${rows.length}`;
   if (totalStu) totalStu.textContent = `Total de Estudiantes: ${uniqueStudents.size}`;
-  if (resumen) resumen.innerHTML = `<span id="skull-count" class="count-badge count-badge--skull">💀: <strong>${rows.length}</strong></span>`;
+  if (resumen) resumen.innerHTML = `<span id="skull-count" class="count-badge count-badge--skull" style= "margin-right: 40px">💀: <strong>${rows.length}</strong></span>`;
 }
 
 function populateSelects(periodos, carreras, periodoActual, carreraActual) {

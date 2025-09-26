@@ -18,44 +18,17 @@
 </head>
 <body>
   <div class="container">
-    <div class="header">
       <!-- Bloque de título + selects -->
       <div class="header-title-block">
         <h2 class="title">Control NEE</h2>
         <!-- Descripción -->
         <div class="description-legend">
           Seguimiento a estudiantes con necesidades especiales.
-        </div>
+      </div>
         <!-- <span id="current-period-label" class="period-label"></span> -->
-        
-        <!-- Periodo actual -->
-        <div class="filters-container">
-          <div class="period-select-container">
-            <label for="period-select"><strong>Seleccionar Periodo:</strong></label>
-            <select id="period-select"></select>
-            <span class="period-hint">El período se actualizará automáticamente al seleccionar uno.</span>
-          </div>
-
-          <!-- Actualizar por carrera -->
-          <div class="carrer-select-container">
-            <label for="carrer-select"><strong>Seleccionar Carrera:</strong></label>
-            <select id="carrer-select"></select>
-            <span class="carrer-hint">La carrera se actualizará automáticamente al seleccionar uno.</span>
-          </div>
-        </div>
       </div>
-      
-      <!-- Estadísticas -->
-      <div class="stats-container">
-        <span class="total-students" id="studentCount">Total Estudiantes: 0</span>
-        <span class="stat-number" id="stat-riesgo-5">Riesgo Muy Alto (5+): 0</span>
-        <span class="stat-number" id="stat-riesgo-4">Riesgo Alto (4): 0</span>
-        <span class="stat-number" id="stat-riesgo-3">Riesgo Medio (3): 0</span>
-        <span class="stat-number" id="stat-riesgo-2">Riesgo Bajo (2): 0</span>
-        <span class="stat-number" id="stat-riesgo-1">Sin Riesgo (1): 0</span>
-      </div>
-      
-      <!-- Filtro -->
+    <div class="header2">
+        <!-- Filtro -->
       <div class="filter-section">
         <label for="filter-input">Filtrar:</label>
         <input type="text" id="filterAcademicInput" placeholder="Ingrese criterio...">
@@ -66,6 +39,32 @@
         <button id="sendEmailsBtn" class="action-button">Enviar Correos</button>
         <button id="goToMenuButton" class="action-button secondary-button">Ir a Menú</button>
       </div>
+    </div>
+      
+    <div class="header">
+      <!-- Estadísticas -->
+      <div class="stats-container">
+        <span class="total-students" id="studentCount">Total Estudiantes: 0</span>
+        <span class="stat-number" id="stat-riesgo-5">Riesgo Muy Alto (5+): 0</span>
+        <span class="stat-number" id="stat-riesgo-4">Riesgo Alto (4): 0</span>
+        <span class="stat-number" id="stat-riesgo-3">Riesgo Medio (3): 0</span>
+        <span class="stat-number" id="stat-riesgo-2">Riesgo Bajo (2): 0</span>
+        <span class="stat-number" id="stat-riesgo-1">Sin Riesgo (1): 0</span>
+      </div>
+
+      <!-- Periodo actual -->
+        <div class="filters-container">
+          <div class="period-select-container">
+            <label for="period-select"><strong>Seleccionar Periodo:</strong></label>
+            <select id="period-select"></select>
+          </div>
+
+      <!-- Actualizar por carrera -->
+          <div class="carrer-select-container">
+            <label for="carrer-select"><strong>Seleccionar Carrera:</strong></label>
+            <select id="carrer-select"></select>
+          </div>
+        </div>
     </div>
 
     <div class="table-container">
